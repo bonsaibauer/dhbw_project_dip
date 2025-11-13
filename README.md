@@ -7,8 +7,12 @@ Ordner für Ergebnisbilder sind automatisch zu erstellen.
 Grundsätzlich sind nur die Standard Python Bibliotheken und die für die Laborversuche vorgegebenen Bibliotheken zu verwenden. Ausnahmen können nach Rücksprache mit dem Dozenten gewährt werden.
 Die zur Bearbeitung bereitgestellten Daten sind nicht mit anzugeben. Nur Quellcode ohne Kommentare und die Dokumentation sind abzugeben.
 
+<<<<<<< HEAD
 ## Programmentwurf – Datensatz
 Laden Sie sich diesen Datensatz herunter und entpacken diesen in Ihren Projektordner. Es handelt sich dabei um einen Teil des Visual Anomaly (VisA) Datensatzes. Im Ordner **"Images"** befinden sich Ordner mit Bildern für normale und abnorme Objekte. Die Datei **"image_anno.csv"** und die Bilder im Ordner **"Masks"** dienen dazu, Ihnen zu vermitteln, welche Fehler zu erkennen sind und sind nicht maschinell auszuwerten.
+=======
+# Phillip, lad den SHit hoch213123
+>>>>>>> 5ec607d68bf22e0976f634dfd45dfbc43b4825bd
 
 ## Programmentwurf – Aufgabe
 - Entfernen Sie den Hintergrund und schneiden Sie die Objekte aus. Wenn für die Auswertung hilfreich, können die Bilder auf eine einheitliche Größe transformiert werden.
@@ -25,3 +29,58 @@ Der abgegebene Quelltext muss nur die beste Lösung umfassen.
 - Die verwendeten Algorithmen sind zu erläutern und Abbildungen mit Zwischenergebnissen zu zeigen. Zusätzlich können auch verworfene Ansätze gegenübergestellt werden.
 - Im Fazit ist das Ergebnis mittels statistischer Daten und Bildern darzulegen, falsche Klassifikationen zu diskutieren und alternative Lösungsansätze vorzuschlagen.
 - Ein Lösungsansatz kann auch sein, die vorgegebene Klassenzuordnung in Frage zu stellen, wobei dies mit geeigneten Argumenten zu belegen ist.
+
+# Git Verwaltung
+
+## Repository herunterladen
+
+Um das Projekt lokal herunterzuladen, klone das Git-Repository:
+
+```bash
+git clone https://github.com/bonsaibauer/dhbw_project_dip.git
+cd dhbw_project_dip
+```
+
+## Standard-Git-Befehle
+
+### Status prüfen
+```bash
+git status
+```
+
+### Änderungen hinzufügen
+```bash
+git add .
+# oder einzelne Datei:
+# git add pfad/zur/datei
+```
+
+### Commit erstellen
+```bash
+git commit -m "Beschreibung der Änderung"
+```
+
+### Änderungen zum Remote pushen
+```bash
+git push origin main
+# oder für eigenen Branch:
+# git push origin feature/mein-branch
+```
+
+### Branch erstellen & wechseln
+```bash
+git checkout -b feature/mein-branch
+```
+
+### Änderungen vom Remote laden
+```bash
+git pull origin main
+```
+
+## Pull Request erstellen
+
+1. Änderungen pushen  
+2. Auf GitHub das Repository öffnen:  
+   https://github.com/bonsaibauer/dhbw_project_dip  
+3. Einen **Pull Request (PR)** für deinen Branch erstellen  
+4. Änderungen und Zweck kurz beschreiben

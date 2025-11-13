@@ -1,5 +1,4 @@
 # dhbw_project_dip
 
-# hier gehts bald fett ab!!!!!
+# Phillip, lad den SHit hoch
 
-# Hier wird gleich alles in Grund und Boden programmiert

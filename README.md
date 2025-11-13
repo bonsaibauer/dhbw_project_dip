@@ -7,13 +7,6 @@ Ordner für Ergebnisbilder sind automatisch zu erstellen.
 Grundsätzlich sind nur die Standard Python Bibliotheken und die für die Laborversuche vorgegebenen Bibliotheken zu verwenden. Ausnahmen können nach Rücksprache mit dem Dozenten gewährt werden.
 Die zur Bearbeitung bereitgestellten Daten sind nicht mit anzugeben. Nur Quellcode ohne Kommentare und die Dokumentation sind abzugeben.
 
-<<<<<<< HEAD
-## Programmentwurf – Datensatz
-Laden Sie sich diesen Datensatz herunter und entpacken diesen in Ihren Projektordner. Es handelt sich dabei um einen Teil des Visual Anomaly (VisA) Datensatzes. Im Ordner **"Images"** befinden sich Ordner mit Bildern für normale und abnorme Objekte. Die Datei **"image_anno.csv"** und die Bilder im Ordner **"Masks"** dienen dazu, Ihnen zu vermitteln, welche Fehler zu erkennen sind und sind nicht maschinell auszuwerten.
-=======
-# Phillip, lad den SHit hoch213123
->>>>>>> 5ec607d68bf22e0976f634dfd45dfbc43b4825bd
-
 ## Programmentwurf – Aufgabe
 - Entfernen Sie den Hintergrund und schneiden Sie die Objekte aus. Wenn für die Auswertung hilfreich, können die Bilder auf eine einheitliche Größe transformiert werden.
 - Entwickeln Sie Algorithmen, um anhand der Bilddaten die zugeschnittenen Bilder in die Ordner **"Normal"**, **"Farbfehler"**, **"Bruch"** und **"Rest"** einzusortieren. Diese Klassen stellen eine Vereinfachung der Klassen in *image_anno.csv* dar. Sollte Unklarheit bei der Zuordnung bestehen, kann dies mit dem Dozenten besprochen werden. Lässt sich ein Bild mehreren Klassen zuordnen, kann eine beliebige Zuordnung gewählt werden.

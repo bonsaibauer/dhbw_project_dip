@@ -56,8 +56,6 @@ git commit -m "Beschreibung der Änderung"
 ### Änderungen zum Remote pushen
 ```bash
 git push origin main
-# oder für eigenen Branch:
-# git push origin feature/mein-branch
 ```
 
 ### Branch erstellen & wechseln

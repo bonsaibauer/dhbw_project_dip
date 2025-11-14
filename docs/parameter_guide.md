@@ -22,7 +22,9 @@ Dieses Dokument beschreibt alle interaktiven Pipeline-Parameter im Tk-Viewer. Je
 | `L hell (>)` (`bright_threshold`) | 210 | Grenze für helle Pixel im L-Kanal. | Senken → mehr Pixel gelten als hell; Anheben → nur echte Spitzlichter fließen in `bright_fraction` ein. |
 | `Gelb b>` (`yellow_threshold`) | 150 | Grenze im b-Kanal (negativ = blau, positiv = gelb). | Größere Werte erkennen nur kräftige Gelbverschiebungen. Kleinere Werte stufen auch leicht gelbliche Stellen als „Gelbanteil“ ein. |
 | `Rot a>` (`red_threshold`) | 150 | Grenze im a-Kanal (negativ = grün, positiv = rot). | Analog zu Gelb: Senken → mehr Pixel gelten als rot; Anheben → nur kräftige Rotanteile zählen. |
-| `Laplacian-Kernel` (`laplacian_ksize`) | 3 (ungerade) | Fenstergröße für den Laplace-Operator, der die Textur-Variation (`laplacian_std`) misst. | Kleine Kerne (3) reagieren empfindlich auf feine Strukturen, größere Kerne glätten und heben nur grobe Texturwechsel hervor. |
+| `Laplacian-Kernel` (`laplacian_ksize`) | 1 (ungerade) | Fenstergröße für den Laplace-Operator, der die Textur-Variation (`laplacian_std`) misst. | Der Wert `1` entspricht dem bisherigen Verhalten der Pipeline. Größere Kerne (3, 5, ...) reagieren empfindlich auf grobere Strukturen und glätten feine Details. |
+
+> Du kannst jederzeit auf der „Optionen“-Registerkarte den Button **„Standardwerte laden“** verwenden, um alle Regler auf die Pipeline-Defaults zurückzusetzen.
 
 ## Zusammenspiel der Parameter
 

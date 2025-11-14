@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import asdict
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
@@ -12,9 +13,11 @@ from PIL import Image, ImageTk, UnidentifiedImageError
 from .. import config
 from ..models.records import ProcessRecord
 from ..pipeline import PipelineOptions
+from ..utils import log_info
 from ..utils.logger import get_log_history, register_listener
 
 THUMB_SIZE = (160, 160)
+MISCLASSIFIED_TAB = "Falsch"
 ImageSlotResolver = Callable[[ProcessRecord], Tuple[str | None, str | None]]
 DETAIL_IMAGE_SLOTS: List[Tuple[str, str, ImageSlotResolver]] = [
     ("original_raw", "Original (roh)", lambda rec: (rec.original_path, None)),
@@ -119,7 +122,7 @@ class PipelineViewer(tk.Tk):
     def _init_state(self) -> None:
         self.log_history = get_log_history()
         self._multi_category_records.clear()
-        grouped: Dict[str, List[ProcessRecord]] = {"Alle": []}
+        grouped: Dict[str, List[ProcessRecord]] = {"Alle": [], MISCLASSIFIED_TAB: []}
         target_categories = set(config.TARGET_CLASSES)
         for cls in config.TARGET_CLASSES:
             grouped[cls] = []
@@ -134,6 +137,8 @@ class PipelineViewer(tk.Tk):
             primary = categories.intersection(target_categories)
             if len(primary) > 1:
                 self._multi_category_records.add(self._record_key(rec))
+            if rec.prediction and rec.target and rec.prediction != rec.target:
+                grouped[MISCLASSIFIED_TAB].append(rec)
         self.grouped_records = grouped
 
     def update_records(self, records: List[ProcessRecord]) -> None:
@@ -184,6 +189,8 @@ class PipelineViewer(tk.Tk):
             self.option_vars[key] = var
 
         frame.columnconfigure(1, weight=1)
+        reset_btn = ttk.Button(frame, text="Standardwerte laden", command=self._reset_options_to_defaults)
+        reset_btn.grid(row=len(OPTION_FIELDS), column=0, columnspan=2, sticky="w", padx=4, pady=(6, 2))
 
     def _build_log_tab(self, parent: ttk.Frame) -> None:
         button_bar = ttk.Frame(parent)
@@ -528,6 +535,7 @@ class PipelineViewer(tk.Tk):
             messagebox.showerror("Ungueltige Eingabe", str(exc), parent=self)
             return
         self.current_options = options
+        log_info(f"UI: Starte Pipeline mit Optionen {asdict(options)}")
         self.set_status("Pipeline wird ausgefuehrt...")
         self.set_running(True)
         self.start_callback(options)
@@ -583,6 +591,17 @@ class PipelineViewer(tk.Tk):
 
         return PipelineOptions(**values, **bool_options)
 
+    def _reset_options_to_defaults(self) -> None:
+        defaults = PipelineOptions()
+        self.current_options = defaults
+        for key, var in self.option_vars.items():
+            value = getattr(defaults, key, "")
+            if isinstance(value, bool):
+                value = "1" if value else "0"
+            var.set(str(value))
+        log_info("UI: Optionen auf Standardwerte zurückgesetzt.")
+        self.set_status("Optionen auf Standardwerte gesetzt.")
+
     def _set_running(self, running: bool) -> None:
         self._is_running = running
         self._update_start_button_state()
@@ -599,7 +618,8 @@ class PipelineViewer(tk.Tk):
         self.data_tab_frames = []
         for key in list(self.tab_widgets.keys()):
             self.tab_widgets.pop(key, None)
-        for tab in ["Alle", *config.TARGET_CLASSES]:
+        tab_order = ["Alle", *config.TARGET_CLASSES, MISCLASSIFIED_TAB]
+        for tab in tab_order:
             records = self.grouped_records.get(tab, [])
             frame = ttk.Frame(self.notebook)
             self.notebook.add(frame, text=f"{tab} ({len(records)})")

@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import stat
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from threading import Event
 from typing import Any, Dict, List
@@ -21,12 +22,12 @@ from .steps.classifier import RuleBasedClassifier
 from .steps.evaluator import evaluate
 from .steps.feature_extraction import FEATURE_NAMES, extract_features
 from .steps.result_writer import ResultWriter
-from .utils import log_info, log_progress
+from .utils import log_error, log_info, log_progress
 
 
 @dataclass
 class PipelineOptions:
-    """UI compatibility wrapper; values currently ignored by the pipeline."""
+    """Parameter bridge between the UI and the processing pipeline."""
 
     blur_size: int = 5
     morph_kernel_size: int = 11
@@ -35,7 +36,7 @@ class PipelineOptions:
     close_then_open: bool = True
     keep_largest_object: bool = True
     invert_threshold: int = 200
-    laplacian_ksize: int = 3
+    laplacian_ksize: int = 1
     dark_threshold: int = 170
     bright_threshold: int = 210
     yellow_threshold: int = 150
@@ -46,6 +47,7 @@ def run_pipeline(options: PipelineOptions | None = None, cancel_event: Event | N
     """Executes the full workflow and returns a dictionary with artefacts."""
 
     options = options or PipelineOptions()
+    log_info(f"Aktive Pipeline-Parameter: {asdict(options)}")
 
     def _check_cancel(stage: str) -> None:
         if cancel_event and cancel_event.is_set():
@@ -54,6 +56,7 @@ def run_pipeline(options: PipelineOptions | None = None, cancel_event: Event | N
 
     _prepare_output_dirs()
     _check_cancel("Initialisierung")
+    _persist_run_options(options)
 
     log_info("Starting fryum quality pipeline.", progress=0.0)
     records = dataset_loader.load_dataset()
@@ -62,7 +65,15 @@ def run_pipeline(options: PipelineOptions | None = None, cancel_event: Event | N
         for record in records
     }
     log_info(f"Loaded {len(records)} annotated records.", progress=5.0)
-    segmenter = BackgroundSegmenter()
+    segmenter = BackgroundSegmenter(
+        blur_size=options.blur_size,
+        morph_kernel_size=options.morph_kernel_size,
+        median_kernel_size=options.median_kernel_size,
+        morph_iterations=options.morph_iterations,
+        close_then_open=options.close_then_open,
+        keep_largest_object=options.keep_largest_object,
+        invert_threshold=options.invert_threshold,
+    )
     writer = ResultWriter()
     classifier = RuleBasedClassifier()
 
@@ -80,7 +91,15 @@ def run_pipeline(options: PipelineOptions | None = None, cancel_event: Event | N
         record_id = record.relative_path.as_posix()
         image = cv2.imread(str(record.image_path))
         segmentation = segmenter.segment(image)
-        features = extract_features(image, segmentation)
+        features = extract_features(
+            image,
+            segmentation,
+            dark_threshold=options.dark_threshold,
+            bright_threshold=options.bright_threshold,
+            yellow_threshold=options.yellow_threshold,
+            red_threshold=options.red_threshold,
+            laplacian_ksize=options.laplacian_ksize,
+        )
         features["target"] = record.target_label
         features["filename"] = record.image_path.name
         features["record_id"] = record_id
@@ -170,6 +189,18 @@ def _prepare_output_dirs() -> None:
     if config.INSPECTION_DIR.exists():
         _safe_rmtree(config.INSPECTION_DIR)
     config.INSPECTION_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _persist_run_options(options: PipelineOptions) -> None:
+    """Write the current run configuration to reports/run_options.json for debugging."""
+
+    try:
+        payload = asdict(options)
+        path = config.REPORT_DIR / "run_options.json"
+        path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        log_info(f"Pipeline-Parameter nach {path} exportiert.", progress=None)
+    except OSError as exc:
+        log_error(f"Pipeline-Parameter konnten nicht gespeichert werden: {exc}")
 
 
 def _safe_rmtree(path: Path) -> None:

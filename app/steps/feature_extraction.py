@@ -31,7 +31,16 @@ FEATURE_NAMES = (
 )
 
 
-def extract_features(image: np.ndarray, segmentation: SegmentationResult) -> Dict[str, float]:
+def extract_features(
+    image: np.ndarray,
+    segmentation: SegmentationResult,
+    *,
+    dark_threshold: int = 170,
+    bright_threshold: int = 210,
+    yellow_threshold: int = 150,
+    red_threshold: int = 150,
+    laplacian_ksize: int = 1,
+) -> Dict[str, float]:
     """Computes shape, colour and texture descriptors."""
 
     mask = segmentation.mask
@@ -56,7 +65,8 @@ def extract_features(image: np.ndarray, segmentation: SegmentationResult) -> Dic
     a = masked_pixels[:, 1]
     b = masked_pixels[:, 2]
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    laplacian_std = float(np.std(cv2.Laplacian(gray, cv2.CV_64F)[mask == 255]))
+    laplacian = cv2.Laplacian(gray, cv2.CV_64F, ksize=laplacian_ksize)
+    laplacian_std = float(np.std(laplacian[mask == 255]))
 
     features = {
         "area_ratio": float(area / (h * w)),
@@ -72,10 +82,10 @@ def extract_features(image: np.ndarray, segmentation: SegmentationResult) -> Dic
         "a_std": float(a.std()),
         "b_mean": float(b.mean()),
         "b_std": float(b.std()),
-        "dark_fraction": float((L < 170).mean()),
-        "bright_fraction": float((L > 210).mean()),
-        "yellow_fraction": float((b > 150).mean()),
-        "red_fraction": float((a > 150).mean()),
+        "dark_fraction": float((L < dark_threshold).mean()),
+        "bright_fraction": float((L > bright_threshold).mean()),
+        "yellow_fraction": float((b > yellow_threshold).mean()),
+        "red_fraction": float((a > red_threshold).mean()),
         "laplacian_std": laplacian_std,
     }
     return features

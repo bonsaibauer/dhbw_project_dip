@@ -35,3 +35,31 @@ AGGREGATED_CLASS_MAPPING = {
 }
 
 TARGET_CLASSES = ("Normal", "Farbfehler", "Bruch", "Rest")
+
+SUBCATEGORY_TAGS = {
+    "Normal": ("normal",),
+    "Farbfehler": ("burnt", "different colour spot", "similar colour spot"),
+    "Bruch": ("middle breakage", "corner or edge breakage"),
+    "Rest": ("fryum stuck together", "small scratches", "other"),
+}
+
+TAG_CATEGORY_LOOKUP = {
+    tag: category
+    for category, tags in SUBCATEGORY_TAGS.items()
+    for tag in tags
+}
+
+_ALL_TAGS = tuple(dict.fromkeys(tag for tags in SUBCATEGORY_TAGS.values() for tag in tags))
+CATEGORY_TAGS = {**SUBCATEGORY_TAGS, "Alle": _ALL_TAGS}
+
+TAG_DISPLAY_NAMES = {
+    "normal": "Normal",
+    "burnt": "Verbrannt",
+    "different colour spot": "Farbiger Fleck",
+    "similar colour spot": "Ähnlicher Farbton",
+    "middle breakage": "Bruch (Mitte)",
+    "corner or edge breakage": "Bruch (Rand)",
+    "fryum stuck together": "Verklebt",
+    "small scratches": "Kratzer",
+    "other": "Sonstiges",
+}

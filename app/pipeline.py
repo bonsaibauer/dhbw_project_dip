@@ -29,6 +29,10 @@ def run_pipeline() -> Dict[str, object]:
 
     log_info("Starting fryum quality pipeline.", progress=0.0)
     records = dataset_loader.load_dataset()
+    record_tags = {
+        record.relative_path.as_posix(): _extract_tags(record.original_label)
+        for record in records
+    }
     log_info(f"Loaded {len(records)} annotated records.", progress=5.0)
     segmenter = BackgroundSegmenter()
     writer = ResultWriter()
@@ -96,12 +100,14 @@ def run_pipeline() -> Dict[str, object]:
         process_records.append(
             ProcessRecord(
                 filename=name,
+                record_id=record_id,
                 prediction=prediction,
                 target=target,
                 original_path=str(original_paths[record_id]),
                 classified_path=str(saved.image_path),
                 inspection_paths=inspection_paths,
                 process_steps=process_steps,
+                tags=record_tags.get(record_id, []),
                 metrics=metrics,
             )
         )
@@ -110,6 +116,10 @@ def run_pipeline() -> Dict[str, object]:
     log_info("Accuracy summary:", progress=99.5)
     for line in accuracy_lines:
         log_info(f"    {line}")
+    prediction_validation = _validate_predictions(process_records)
+    log_info(prediction_validation["message"], progress=99.7)
+    for miss in prediction_validation["mismatches"]:
+        log_info(f"    {miss}")
     log_info("Pipeline finished successfully.", progress=100.0)
     return {
         "features": feature_df.reset_index(),
@@ -215,6 +225,36 @@ def _build_process_steps(
             "details": output_path,
         },
     ]
+
+
+def _extract_tags(label: str) -> List[str]:
+    """Split the raw CSV label into normalized tag strings."""
+
+    raw = (label or "").strip()
+    if not raw or raw.lower() == "nan":
+        return []
+    return [token.strip().lower() for token in raw.split(",") if token.strip()]
+
+
+def _validate_predictions(records: List[ProcessRecord]) -> Dict[str, object]:
+    """Checks model predictions against CSV targets."""
+
+    total = len(records)
+    correct = 0
+    mismatches: List[str] = []
+    for rec in records:
+        if rec.prediction == rec.target:
+            correct += 1
+        else:
+            mismatches.append(
+                f"{rec.filename}: erwartet {rec.target}, erhalten {rec.prediction}"
+            )
+    accuracy = (correct / total) if total else 0.0
+    message = (
+        f"Vorhersage-Validierung: {correct}/{total} korrekt "
+        f"({accuracy:.2%})."
+    )
+    return {"message": message, "mismatches": mismatches}
 
 
 def _scalar_df(df: pd.DataFrame, index: str, column: str) -> Any:

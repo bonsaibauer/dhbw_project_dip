@@ -1,0 +1,29 @@
+# Byte-compiled / cache
+__pycache__/
+*.py[cod]
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Embedded runtime installation
+runtime/python311/
+data/
+
+# IDE tooling
+.idea/
+.vscode/
+
+# Generated pipeline output
+output/
+
+# Logs / reports
+*.log
+
+# System junk
+Thumbs.db
+Desktop.ini
+
+# Local path overrides
+paths.json

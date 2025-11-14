@@ -1,77 +1,24 @@
-# Programmentwurf - Abgabe
-Beachten Sie die auf dieser Folie angegebenen Vorgaben zum Programmentwurf.
-Je Gruppe ist nur eine Abgabe notwendig.
-Der Programmentwurf ist bis 21.11.25, 23:59 Uhr über Moodle abzugeben.
-Der abgegebene Quellcode muss ohne Aufwand lauffähig sein.
-Ordner für Ergebnisbilder sind automatisch zu erstellen.
-Grundsätzlich sind nur die Standard Python Bibliotheken und die für die Laborversuche vorgegebenen Bibliotheken zu verwenden. Ausnahmen können nach Rücksprache mit dem Dozenten gewährt werden.
-Die zur Bearbeitung bereitgestellten Daten sind nicht mit anzugeben. Nur Quellcode ohne Kommentare und die Dokumentation sind abzugeben.
+# dhbw_project_dip
 
-## Programmentwurf – Aufgabe
-- Entfernen Sie den Hintergrund und schneiden Sie die Objekte aus. Wenn für die Auswertung hilfreich, können die Bilder auf eine einheitliche Größe transformiert werden.
-- Entwickeln Sie Algorithmen, um anhand der Bilddaten die zugeschnittenen Bilder in die Ordner **"Normal"**, **"Farbfehler"**, **"Bruch"** und **"Rest"** einzusortieren. Diese Klassen stellen eine Vereinfachung der Klassen in *image_anno.csv* dar. Sollte Unklarheit bei der Zuordnung bestehen, kann dies mit dem Dozenten besprochen werden. Lässt sich ein Bild mehreren Klassen zuordnen, kann eine beliebige Zuordnung gewählt werden.
-- Des Weiteren sollen alle falsch zugeordneten Bilder in den Ordner **"Falsch"** kopiert werden. Der Dateiname ist dabei um die korrekte und die erkannte Klasse zu ergänzen.
-- Legen Sie ein Maß für die Symmetrie der Objekte fest und sortieren Sie die Bilder der Klasse **"Normal"** mittels eines Präfix nach diesem Maß.
+Dieses Repository enthaelt die vollautomatisierte Bildverarbeitungs-Pipeline inklusive Tkinter-Dashboard. Das Setup erfolgt ueber das mitgelieferte Windows-Skript und benoetigt keine globale Python-Installation.
 
-## Programmentwurf – Abgabe
-### Quellcode
-Der abgegebene Quelltext muss nur die beste Lösung umfassen.
+## Projektstart
 
-### Dokumentation
-- Die Einleitung und der Stand der Technik können sehr kurz gehalten werden.
-- Die verwendeten Algorithmen sind zu erläutern und Abbildungen mit Zwischenergebnissen zu zeigen. Zusätzlich können auch verworfene Ansätze gegenübergestellt werden.
-- Im Fazit ist das Ergebnis mittels statistischer Daten und Bildern darzulegen, falsche Klassifikationen zu diskutieren und alternative Lösungsansätze vorzuschlagen.
-- Ein Lösungsansatz kann auch sein, die vorgegebene Klassenzuordnung in Frage zu stellen, wobei dies mit geeigneten Argumenten zu belegen ist.
+1. **Direktstart (Doppelklick)**  
+   Fuehre `setup_and_run.bat` per Doppelklick im Projektstamm aus. Das Skript installiert automatisch die gebuendelte Python-Version (`runtime\python311\`), richtet alle Abhaengigkeiten ein und startet anschliessend das UI.
 
-# Git Verwaltung
+2. **Start aus VS Code (PowerShell-Terminal)**  
+   Oeffne das integrierte Terminal in VS Code, waehle PowerShell und fuehre bei Bedarf mit gelockerter Ausfuehrungsrichtlinie:
+   ```powershell
+   .\setup_and_run.bat
+   ```
+   Im Standardfall reicht `.\setup_and_run.bat`. Auch hier uebernimmt das Skript Installation und Start vollautomatisch.
 
-## Repository herunterladen
+Nach erfolgreichem Setup oeffnet sich das Tkinter-Dashboard. Die Pipeline laeuft parallel, und alle Logs sowie Statusmeldungen erscheinen direkt im UI.
 
-Um das Projekt lokal herunterzuladen, klone das Git-Repository:
+## Bilddaten bereitstellen
 
-```bash
-git clone https://github.com/bonsaibauer/dhbw_project_dip.git
-cd dhbw_project_dip
-```
+- Lege den Ordner mit den Eingangsbildern idealerweise als `data\` im Projekt-Root ab, damit die Anwendung ihn sofort laden kann.  
+- Falls die Bilder an einem anderen Speicherort liegen, waehle beim Start des Dashboards den tatsaechlichen Ordnerpfad aus.  
+- Ohne einen gueltigen Bilder-Ordner koennen keine Klassifizierungen gestartet werden.
 
-## Standard-Git-Befehle
-
-### Status prüfen
-```bash
-git status
-```
-
-### Änderungen hinzufügen
-```bash
-git add .
-# oder einzelne Datei:
-# git add pfad/zur/datei
-```
-
-### Commit erstellen
-```bash
-git commit -m "Beschreibung der Änderung"
-```
-
-### Änderungen zum Remote pushen
-```bash
-git push origin main
-```
-
-### Branch erstellen & wechseln
-```bash
-git checkout -b feature/mein-branch
-```
-
-### Änderungen vom Remote laden
-```bash
-git pull origin main
-```
-
-## Pull Request erstellen
-
-1. Änderungen pushen  
-2. Auf GitHub das Repository öffnen:  
-   https://github.com/bonsaibauer/dhbw_project_dip  
-3. Einen **Pull Request (PR)** für deinen Branch erstellen  
-4. Änderungen und Zweck kurz beschreiben

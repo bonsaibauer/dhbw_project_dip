@@ -62,7 +62,11 @@ def run_pipeline() -> Dict[str, object]:
     (config.REPORT_DIR / "confusion_matrix.csv").write_text(evaluation.confusion.to_csv())
     (config.REPORT_DIR / "classification_report.txt").write_text(evaluation.report)
     (config.REPORT_DIR / "summary.txt").write_text(f"Accuracy: {evaluation.accuracy:.4f}\n")
-    log_info(f"Evaluation complete. Accuracy={evaluation.accuracy:.4f}", progress=90.0)
+    accuracy_lines = [f"Overall accuracy: {evaluation.accuracy:.4f}", "Per-class precision/recall/F1 support report:"]
+    accuracy_lines.extend(evaluation.report.strip().splitlines())
+    accuracy_lines.append("Confusion matrix (rows=true, cols=pred):")
+    accuracy_lines.extend(evaluation.confusion.to_string().splitlines())
+    log_info("Evaluation complete.", progress=90.0)
 
     log_info("Saving classified crops.", progress=92.0)
     total_files = max(1, len(filenames))
@@ -74,6 +78,9 @@ def run_pipeline() -> Dict[str, object]:
         saved_items.append(saved)
         log_progress("Saving outputs", idx, total_files)
 
+    log_info("Accuracy summary:", progress=99.5)
+    for line in accuracy_lines:
+        log_info(f"    {line}")
     log_info("Pipeline finished successfully.", progress=100.0)
     return {
         "features": feature_df,

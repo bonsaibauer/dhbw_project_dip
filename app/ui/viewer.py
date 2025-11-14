@@ -5,7 +5,7 @@ from __future__ import annotations
 import tkinter as tk
 from pathlib import Path
 from tkinter import ttk
-from typing import Dict, List
+from typing import Callable, Dict, List, Tuple
 
 from PIL import Image, ImageTk, UnidentifiedImageError
 
@@ -14,17 +14,25 @@ from ..models.records import ProcessRecord
 from ..utils.logger import get_log_history, register_listener
 
 THUMB_SIZE = (160, 160)
-MAIN_SIZE = (380, 380)
-MASK_SIZE = (320, 320)
-INTERMEDIATE_LABELS = {
-    "original": "Original",
-    "blurred": "Blur",
-    "raw_mask": "Maske roh",
-    "mask": "Maske gereinigt",
-    "mask_overlay": "Maske Overlay",
-    "cropped": "Cropped",
-    "classified": "Klassifiziert",
-}
+ImageSlotResolver = Callable[[ProcessRecord], Tuple[str | None, str | None]]
+DETAIL_IMAGE_SLOTS: List[Tuple[str, str, ImageSlotResolver]] = [
+    ("original_raw", "Original (roh)", lambda rec: (rec.original_path, None)),
+    ("original_masked", "Original (maskiert)", lambda rec: (rec.inspection_paths.get("original"), None)),
+    ("blurred", "Blur (maskiert)", lambda rec: (rec.inspection_paths.get("blurred"), None)),
+    ("raw_mask", "Maske roh", lambda rec: (rec.inspection_paths.get("raw_mask"), None)),
+    ("mask_clean", "Maske gereinigt", lambda rec: (rec.inspection_paths.get("mask"), None)),
+    (
+        "mask_overlay",
+        "Masken-Overlay",
+        lambda rec: (
+            rec.inspection_paths.get("mask_overlay") or rec.inspection_paths.get("mask"),
+            None,
+        ),
+    ),
+    ("cropped", "Segmentierter Ausschnitt", lambda rec: (rec.inspection_paths.get("cropped"), None)),
+    ("classified", "Klassifiziertes Ergebnis", lambda rec: (rec.classified_path, None)),
+    ("classified_masked", "Ergebnis mit Maske", lambda rec: (rec.classified_path, rec.inspection_paths.get("mask"))),
+]
 
 
 def launch_viewer(records: List[ProcessRecord] | None = None) -> "PipelineViewer":
@@ -147,17 +155,25 @@ class PipelineViewer(tk.Tk):
 
     def _build_detail_panel(self, parent: ttk.Frame) -> Dict[str, object]:
         parent.columnconfigure(0, weight=1)
-        parent.columnconfigure(1, weight=1)
+        parent.rowconfigure(0, weight=1)
         parent.rowconfigure(2, weight=1)
 
-        image_label = tk.Label(parent, text="Bild", bd=1, relief=tk.SUNKEN)
-        image_label.grid(row=0, column=0, padx=5, pady=5, sticky="nsew")
-        mask_label = tk.Label(parent, text="Maske", bd=1, relief=tk.SUNKEN)
-        mask_label.grid(row=0, column=1, padx=5, pady=5, sticky="nsew")
+        grid_frame = ttk.Frame(parent)
+        grid_frame.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
+        grid_frame.columnconfigure((0, 1, 2), weight=1)
+
+        grid_labels: Dict[str, tk.Label] = {}
+        for idx, (slot_key, title, _resolver) in enumerate(DETAIL_IMAGE_SLOTS):
+            row = idx // 3
+            col = idx % 3
+            label = tk.Label(grid_frame, text=title, bd=1, relief=tk.SUNKEN, compound="top", cursor="hand2")
+            label.grid(row=row, column=col, padx=4, pady=4, sticky="nsew")
+            grid_frame.rowconfigure(row, weight=1)
+            grid_labels[slot_key] = label
 
         meta_var = tk.StringVar()
         meta_label = ttk.Label(parent, textvariable=meta_var, justify=tk.LEFT)
-        meta_label.grid(row=1, column=0, columnspan=2, sticky="ew", padx=5, pady=2)
+        meta_label.grid(row=1, column=0, sticky="ew", padx=5, pady=2)
 
         steps = ttk.Treeview(parent, columns=("step", "status", "details"), show="headings", height=5)
         steps.heading("step", text="Schritt")
@@ -166,18 +182,12 @@ class PipelineViewer(tk.Tk):
         steps.column("step", width=160, anchor="w")
         steps.column("status", width=120, anchor="center")
         steps.column("details", anchor="w")
-        steps.grid(row=2, column=0, columnspan=2, sticky="nsew", padx=5, pady=5)
-
-        intermediate_frame = ttk.Frame(parent)
-        intermediate_frame.grid(row=3, column=0, columnspan=2, sticky="nsew", padx=5, pady=5)
+        steps.grid(row=2, column=0, sticky="nsew", padx=5, pady=5)
 
         return {
-            "image_label": image_label,
-            "mask_label": mask_label,
+            "grid_labels": grid_labels,
             "meta_var": meta_var,
             "steps": steps,
-            "intermediate": intermediate_frame,
-            "current_images": {},
         }
 
     def _update_detail(self, widgets: Dict[str, object], record: ProcessRecord) -> None:
@@ -187,17 +197,18 @@ class PipelineViewer(tk.Tk):
             + "\n".join(f"{key}: {value:.3f}" for key, value in record.metrics.items())
         )
         widgets["meta_var"].set(meta_text)
-        mask_path = record.inspection_paths.get("mask")
-        self._set_image(widgets["image_label"], record.classified_path, MAIN_SIZE, widgets)
-        mask_overlay = record.inspection_paths.get("mask_overlay") or mask_path
-        if mask_overlay:
-            self._set_image(
-                widgets["mask_label"],
-                mask_overlay,
-                MASK_SIZE,
-                widgets,
-                mask_path if mask_overlay != mask_path else None,
-            )
+
+        for slot_key, title, resolver in DETAIL_IMAGE_SLOTS:
+            label: tk.Label = widgets["grid_labels"][slot_key]  # type: ignore[assignment]
+            path, override_mask = resolver(record)
+            if path:
+                applied_mask = override_mask if override_mask is not None else None
+                self._set_image(label, path, THUMB_SIZE, applied_mask)
+                label.configure(text=title)
+            else:
+                label.configure(text=f"{title}\n(nicht verfuegbar)", image="")
+                label.image = None
+                label.unbind("<Button-1>")
 
         steps_tree: ttk.Treeview = widgets["steps"]  # type: ignore[assignment]
         for row in steps_tree.get_children():
@@ -205,14 +216,11 @@ class PipelineViewer(tk.Tk):
         for step in record.process_steps:
             steps_tree.insert("", tk.END, values=(step["title"], step["status"], step["details"]))
 
-        self._populate_intermediates(widgets["intermediate"], record)
-
     def _set_image(
         self,
         label: tk.Label,
         path: str,
         size: tuple[int, int],
-        widgets: Dict[str, object],
         mask_path: str | None = None,
     ) -> None:
         img = _load_image(path, size, mask_path)
@@ -224,25 +232,6 @@ class PipelineViewer(tk.Tk):
             self._show_full_image(path)
 
         label.bind("<Button-1>", _open_full)
-
-    def _populate_intermediates(self, frame: ttk.Frame, record: ProcessRecord) -> None:
-        for child in frame.winfo_children():
-            child.destroy()
-        paths = record.inspection_paths
-        col = 0
-        mask_path = record.inspection_paths.get("mask")
-        for key, title in INTERMEDIATE_LABELS.items():
-            path = paths.get(key)
-            if not path:
-                continue
-            mask_for_key = mask_path if key in {"original", "blurred", "mask_overlay"} else None
-            img = _load_image(path, THUMB_SIZE, mask_for_key)
-            photo = ImageTk.PhotoImage(img)
-            lbl = tk.Label(frame, image=photo, compound="top", text=title, cursor="hand2")
-            lbl.image = photo
-            lbl.grid(row=0, column=col, padx=5, pady=5)
-            lbl.bind("<Button-1>", lambda _e, p=path: self._show_full_image(p))
-            col += 1
 
     def _show_full_image(self, path: str) -> None:
         top = tk.Toplevel(self)

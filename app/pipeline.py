@@ -34,8 +34,9 @@ def run_pipeline() -> Dict[str, object]:
     writer = ResultWriter()
     classifier = RuleBasedClassifier()
 
-    feature_rows: List[Dict[str, float]] = []
+    feature_rows: List[Dict[str, Any]] = []
     segmentation_cache: Dict[str, SegmentationResult] = {}
+    record_ids: List[str] = []
     filenames: List[str] = []
     ground_truth: List[str] = []
     original_paths: Dict[str, Path] = {}
@@ -43,21 +44,24 @@ def run_pipeline() -> Dict[str, object]:
     log_info("Running segmentation and feature extraction.", progress=10.0)
     total_records = max(1, len(records))
     for idx, record in enumerate(records, start=1):
+        record_id = record.relative_path.as_posix()
         image = cv2.imread(str(record.image_path))
         segmentation = segmenter.segment(image)
         features = extract_features(image, segmentation)
         features["target"] = record.target_label
         features["filename"] = record.image_path.name
+        features["record_id"] = record_id
         feature_rows.append(features)
-        segmentation_cache[record.image_path.name] = segmentation
+        segmentation_cache[record_id] = segmentation
+        record_ids.append(record_id)
         filenames.append(record.image_path.name)
         ground_truth.append(record.target_label)
-        original_paths[record.image_path.name] = record.image_path
+        original_paths[record_id] = record.image_path
         log_progress("Segmentation+Features", idx, total_records)
 
     feature_df = pd.DataFrame(feature_rows)
     feature_df.to_csv(config.REPORT_DIR / "feature_table.csv", index=False)
-    feature_df.set_index("filename", inplace=True)
+    feature_df.set_index("record_id", inplace=True)
     log_info("Segmentation and feature extraction completed.", progress=60.0)
 
     log_info("Classifying samples via rule-based model.", progress=70.0)
@@ -80,13 +84,13 @@ def run_pipeline() -> Dict[str, object]:
     saved_items = []
     process_records: List[ProcessRecord] = []
     metric_keys = ["area_ratio", "symmetry", "lightness_mean", "laplacian_std", "dark_fraction", "bright_fraction"]
-    for idx, (name, target, prediction) in enumerate(zip(filenames, ground_truth, predictions), start=1):
-        segmentation = segmentation_cache[name]
-        symmetry = float(_scalar_df(feature_df, name, "symmetry"))
-        inspection_paths = _save_inspection_assets(name, prediction, segmentation, original_paths[name])
+    for idx, (record_id, name, target, prediction) in enumerate(zip(record_ids, filenames, ground_truth, predictions), start=1):
+        segmentation = segmentation_cache[record_id]
+        symmetry = float(_scalar_df(feature_df, record_id, "symmetry"))
+        inspection_paths = _save_inspection_assets(name, prediction, segmentation, original_paths[record_id])
         saved = writer.save(name, prediction, target, segmentation, symmetry)
         inspection_paths["classified"] = str(saved.image_path)
-        metrics = {key: float(_scalar_df(feature_df, name, key)) for key in metric_keys}
+        metrics = {key: float(_scalar_df(feature_df, record_id, key)) for key in metric_keys}
         process_steps = _build_process_steps(segmentation, prediction, target, str(saved.image_path))
         saved_items.append(saved)
         process_records.append(
@@ -94,7 +98,7 @@ def run_pipeline() -> Dict[str, object]:
                 filename=name,
                 prediction=prediction,
                 target=target,
-                original_path=str(original_paths[name]),
+                original_path=str(original_paths[record_id]),
                 classified_path=str(saved.image_path),
                 inspection_paths=inspection_paths,
                 process_steps=process_steps,

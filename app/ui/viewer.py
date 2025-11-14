@@ -112,12 +112,15 @@ class PipelineViewer(tk.Tk):
         self.options_tab: ttk.Frame | None = None
         self.data_tab_frames: List[ttk.Frame] = []
         self.log_text: tk.Text | None = None
+        self._multi_category_records: set[str] = set()
         self._build_ui()
         self._refresh_tabs()
 
     def _init_state(self) -> None:
         self.log_history = get_log_history()
+        self._multi_category_records.clear()
         grouped: Dict[str, List[ProcessRecord]] = {"Alle": []}
+        target_categories = set(config.TARGET_CLASSES)
         for cls in config.TARGET_CLASSES:
             grouped[cls] = []
         for rec in self.records:
@@ -128,6 +131,9 @@ class PipelineViewer(tk.Tk):
                 continue
             for category in categories:
                 grouped.setdefault(category, []).append(rec)
+            primary = categories.intersection(target_categories)
+            if len(primary) > 1:
+                self._multi_category_records.add(self._record_key(rec))
         self.grouped_records = grouped
 
     def update_records(self, records: List[ProcessRecord]) -> None:
@@ -228,7 +234,14 @@ class PipelineViewer(tk.Tk):
         form.pack(fill=tk.BOTH, expand=True, padx=8, pady=5)
         self.path_vars = {}
         self.path_status_labels = {}
-        self._create_path_form(form, self.path_vars, self.path_status_labels, is_main=True)
+        self.path_inputs = {}
+        self._create_path_form(
+            form,
+            self.path_vars,
+            self.path_status_labels,
+            is_main=True,
+            input_store=self.path_inputs,
+        )
         self._apply_auto_paths()
         btns = ttk.Frame(parent)
         btns.pack(fill=tk.X, padx=8, pady=5)
@@ -242,9 +255,11 @@ class PipelineViewer(tk.Tk):
         var_map: Dict[str, tk.StringVar],
         status_labels: Dict[str, ttk.Label] | None = None,
         is_main: bool = False,
+        input_store: Dict[str, Dict[str, ttk.Widget]] | None = None,
     ) -> None:
         fields = config.get_path_fields()
         store_widgets = is_main
+        target_inputs = input_store if input_store is not None else (self.path_inputs if store_widgets else None)
         for idx, field in enumerate(fields):
             key = field["key"]
             if store_widgets:
@@ -269,16 +284,32 @@ class PipelineViewer(tk.Tk):
             status.grid(row=idx, column=3, padx=5, pady=2)
             if status_labels is not None:
                 status_labels[key] = status
-            if store_widgets:
-                self.path_inputs[key] = {"entry": entry, "button": button}
-                if key != "data_dir":
-                    self._set_path_field_state(key, False)
-                else:
-                    var.trace_add("write", lambda *_: self._on_data_dir_changed())
+            if target_inputs is not None:
+                target_inputs[key] = {"entry": entry, "button": button}
+            if key != "data_dir":
+                self._set_path_field_state(key, False, target_inputs)
+            else:
+                var.trace_add(
+                    "write",
+                    lambda *_,
+                    vars_ref=var_map,
+                    labels_ref=status_labels,
+                    inputs_ref=target_inputs: self._on_data_dir_changed(
+                        vars_ref, labels_ref, inputs_ref
+                    ),
+                )
         parent.columnconfigure(1, weight=1)
 
-    def _set_path_field_state(self, key: str, enabled: bool) -> None:
-        widgets = self.path_inputs.get(key)
+    def _set_path_field_state(
+        self,
+        key: str,
+        enabled: bool,
+        input_map: Dict[str, Dict[str, ttk.Widget]] | None = None,
+    ) -> None:
+        widgets_map = input_map if input_map is not None else self.path_inputs
+        if not widgets_map:
+            return
+        widgets = widgets_map.get(key)
         if not widgets:
             return
         entry = widgets["entry"]
@@ -301,33 +332,59 @@ class PipelineViewer(tk.Tk):
             if is_main and key == "data_dir":
                 self._apply_auto_paths()
 
-    def _on_data_dir_changed(self) -> None:
-        self._apply_auto_paths()
+    def _on_data_dir_changed(
+        self,
+        var_map: Dict[str, tk.StringVar] | None = None,
+        status_labels: Dict[str, ttk.Label] | None = None,
+        input_store: Dict[str, Dict[str, ttk.Widget]] | None = None,
+    ) -> None:
+        vars_ref = var_map if var_map is not None else self.path_vars
+        if vars_ref is None:
+            return
+        if status_labels is None and var_map is None:
+            labels_ref = self.path_status_labels
+        else:
+            labels_ref = status_labels
+        if input_store is not None:
+            inputs_ref = input_store
+        elif var_map is None:
+            inputs_ref = self.path_inputs
+        else:
+            inputs_ref = None
+        self._apply_auto_paths_for_form(vars_ref, labels_ref, inputs_ref)
 
     def _apply_auto_paths(self) -> None:
-        data_var = self.path_vars.get("data_dir")
+        self._apply_auto_paths_for_form(self.path_vars, self.path_status_labels, self.path_inputs)
+
+    def _apply_auto_paths_for_form(
+        self,
+        var_map: Dict[str, tk.StringVar],
+        status_labels: Dict[str, ttk.Label] | None,
+        input_store: Dict[str, Dict[str, ttk.Widget]] | None,
+    ) -> None:
+        data_var = var_map.get("data_dir")
         if not data_var:
             return
         base_value = data_var.get().strip()
         base_path = Path(base_value) if base_value else None
         if not base_path or not base_path.is_dir():
             for key in AUTO_RELATIVE_PATHS.keys():
-                self._set_path_field_state(key, False)
-            self._update_status_label("data_dir", base_path)
+                self._set_path_field_state(key, False, input_store)
+            self._update_status_label("data_dir", base_path, status_labels, var_map)
             return
         structure_ok, derived = self._derive_auto_paths(base_path)
-        self._update_status_label("data_dir", base_path)
+        self._update_status_label("data_dir", base_path, status_labels, var_map)
         if structure_ok:
             for key, path in derived.items():
-                var = self.path_vars.get(key)
+                var = var_map.get(key)
                 if var is not None:
                     var.set(str(path))
-                self._set_path_field_state(key, False)
-                self._update_status_label(key, path)
+                self._set_path_field_state(key, False, input_store)
+                self._update_status_label(key, path, status_labels, var_map)
         else:
             for key in AUTO_RELATIVE_PATHS.keys():
-                self._set_path_field_state(key, True)
-                self._update_status_label(key)
+                self._set_path_field_state(key, True, input_store)
+                self._update_status_label(key, None, status_labels, var_map)
 
     def _derive_auto_paths(self, base_path: Path) -> Tuple[bool, Dict[str, Path]]:
         derived: Dict[str, Path] = {}
@@ -343,14 +400,26 @@ class PipelineViewer(tk.Tk):
                 break
         return structure_ok, derived
 
-    def _update_status_label(self, key: str, explicit_path: Path | None = None) -> None:
-        label = self.path_status_labels.get(key)
+    def _update_status_label(
+        self,
+        key: str,
+        explicit_path: Path | None = None,
+        status_labels: Dict[str, ttk.Label] | None = None,
+        var_map: Dict[str, tk.StringVar] | None = None,
+    ) -> None:
+        label_map = status_labels if status_labels is not None else self.path_status_labels
+        if not label_map:
+            return
+        label = label_map.get(key)
         if not label:
             return
         field_meta = self.path_field_meta.get(key, {})
         kind = field_meta.get("type", "dir")
         if explicit_path is None:
-            var = self.path_vars.get(key)
+            var_lookup = var_map if var_map is not None else self.path_vars
+            if not var_lookup:
+                return
+            var = var_lookup.get(key)
             if not var:
                 return
             explicit_path = Path(var.get())
@@ -402,7 +471,16 @@ class PipelineViewer(tk.Tk):
         form = ttk.Frame(top)
         form.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
         local_vars: Dict[str, tk.StringVar] = {}
-        self._create_path_form(form, local_vars, status_labels=None, is_main=False)
+        local_status: Dict[str, ttk.Label] = {}
+        local_inputs: Dict[str, Dict[str, ttk.Widget]] = {}
+        self._create_path_form(
+            form,
+            local_vars,
+            status_labels=local_status,
+            is_main=False,
+            input_store=local_inputs,
+        )
+        self._apply_auto_paths_for_form(local_vars, local_status, local_inputs)
         btns = ttk.Frame(top)
         btns.pack(fill=tk.X, padx=10, pady=10)
         ttk.Button(btns, text="Schliessen", command=self._close_setup_popup).pack(side=tk.RIGHT)
@@ -583,8 +661,10 @@ class PipelineViewer(tk.Tk):
             nonlocal current_subset
             current_subset = subset
             listbox.delete(0, tk.END)
-            for rec in subset:
+            for idx, rec in enumerate(subset):
                 listbox.insert(tk.END, self._format_record_entry(rec))
+                if self._is_multi_category_record(rec):
+                    listbox.itemconfig(idx, {"fg": "orange"})
             if subset:
                 listbox.selection_clear(0, tk.END)
                 listbox.selection_set(0)
@@ -736,6 +816,12 @@ class PipelineViewer(tk.Tk):
             normalized.append(str(tag).strip().lower())
         return normalized
 
+    def _record_key(self, record: ProcessRecord) -> str:
+        return record.record_id or record.filename
+
+    def _is_multi_category_record(self, record: ProcessRecord) -> bool:
+        return self._record_key(record) in self._multi_category_records
+
     def _record_categories(self, record: ProcessRecord) -> set[str]:
         categories: set[str] = set()
         for tag in self._record_tags(record):
@@ -748,8 +834,9 @@ class PipelineViewer(tk.Tk):
 
     def _format_record_entry(self, record: ProcessRecord) -> str:
         tags = [self._format_tag_display(tag) for tag in self._record_tags(record)]
-        tag_text = " ".join(tags) if tags else "–"
-        return f"{record.filename} ({record.prediction})  {tag_text}"
+        tag_text = " ".join(tags) if tags else "-"
+        multi_hint = "  [Mehrfache Kategorie]" if self._is_multi_category_record(record) else ""
+        return f"{record.filename} ({record.prediction})  {tag_text}{multi_hint}"
 
     @staticmethod
     def _format_tag_display(tag: str) -> str:
@@ -803,6 +890,8 @@ class PipelineViewer(tk.Tk):
             f"Klassifikation: {record.prediction} (Soll: {record.target})\n"
             + "\n".join(f"{key}: {value:.3f}" for key, value in record.metrics.items())
         )
+        if self._is_multi_category_record(record):
+            meta_text += "\nHinweis: Dieses Bild ist mehreren Kategorien zugeordnet."
         widgets["meta_var"].set(meta_text)
 
         for slot_key, title, resolver in DETAIL_IMAGE_SLOTS:

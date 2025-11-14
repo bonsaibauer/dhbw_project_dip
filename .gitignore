@@ -8,9 +8,7 @@ venv/
 env/
 
 # Embedded runtime installation
-runtime/python312*/
-runtime/python313*/
-runtime/python314/
+runtime/python311*/
 
 # IDE tooling
 .idea/

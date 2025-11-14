@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import os
 import shutil
+import stat
 from pathlib import Path
 from typing import Dict, List, Any
 
@@ -118,8 +120,21 @@ def _prepare_output_dirs() -> None:
     config.OUTPUT_ROOT.mkdir(exist_ok=True)
     config.REPORT_DIR.mkdir(parents=True, exist_ok=True)
     if config.INSPECTION_DIR.exists():
-        shutil.rmtree(config.INSPECTION_DIR)
+        _safe_rmtree(config.INSPECTION_DIR)
     config.INSPECTION_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _safe_rmtree(path: Path) -> None:
+    """Remove directory trees on Windows even if files are read-only."""
+
+    def _on_rm_error(func, p, exc_info):
+        try:
+            os.chmod(p, stat.S_IWRITE)
+            func(p)
+        except Exception:
+            raise exc_info[1]
+
+    shutil.rmtree(path, onerror=_on_rm_error)
 
 
 def _save_inspection_assets(
@@ -133,22 +148,29 @@ def _save_inspection_assets(
         shutil.rmtree(dest)
     dest.mkdir(parents=True, exist_ok=True)
     original_copy = dest / "original.jpg"
-    shutil.copy2(original_path, original_copy)
     blurred_path = dest / "blurred.jpg"
-    cv2.imwrite(str(blurred_path), segmentation.blurred)
     raw_mask_path = dest / "raw_mask.png"
-    cv2.imwrite(str(raw_mask_path), segmentation.raw_mask)
     mask_path = dest / "mask.png"
-    cv2.imwrite(str(mask_path), segmentation.mask)
     cropped_path = dest / "cropped.png"
-    cv2.imwrite(str(cropped_path), segmentation.cropped_image)
     overlay_path = dest / "mask_overlay.png"
+
+    cv2.imwrite(str(raw_mask_path), segmentation.raw_mask)
+    cv2.imwrite(str(mask_path), segmentation.mask)
+    cv2.imwrite(str(cropped_path), segmentation.cropped_image)
+
     original_img = cv2.imread(str(original_path))
+    masked_original = None
     if original_img is not None and original_img.shape[:2] == segmentation.mask.shape:
+        masked_original = cv2.bitwise_and(original_img, original_img, mask=segmentation.mask)
+        cv2.imwrite(str(original_copy), masked_original)
+        masked_blurred = cv2.bitwise_and(segmentation.blurred, segmentation.blurred, mask=segmentation.mask)
+        cv2.imwrite(str(blurred_path), masked_blurred)
         mask_color = cv2.cvtColor(segmentation.mask, cv2.COLOR_GRAY2BGR)
-        overlay = cv2.addWeighted(original_img, 0.7, mask_color, 0.3, 0)
+        overlay = cv2.addWeighted(masked_original, 0.7, mask_color, 0.3, 0)
         cv2.imwrite(str(overlay_path), overlay)
     else:
+        shutil.copy2(original_path, original_copy)
+        cv2.imwrite(str(blurred_path), segmentation.blurred)
         overlay_path = str(mask_path)
     return {
         "folder": str(dest),

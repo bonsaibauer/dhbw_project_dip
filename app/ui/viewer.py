@@ -187,10 +187,17 @@ class PipelineViewer(tk.Tk):
             + "\n".join(f"{key}: {value:.3f}" for key, value in record.metrics.items())
         )
         widgets["meta_var"].set(meta_text)
+        mask_path = record.inspection_paths.get("mask")
         self._set_image(widgets["image_label"], record.classified_path, MAIN_SIZE, widgets)
-        mask_path = record.inspection_paths.get("mask_overlay") or record.inspection_paths.get("mask")
-        if mask_path:
-            self._set_image(widgets["mask_label"], mask_path, MASK_SIZE, widgets)
+        mask_overlay = record.inspection_paths.get("mask_overlay") or mask_path
+        if mask_overlay:
+            self._set_image(
+                widgets["mask_label"],
+                mask_overlay,
+                MASK_SIZE,
+                widgets,
+                mask_path if mask_overlay != mask_path else None,
+            )
 
         steps_tree: ttk.Treeview = widgets["steps"]  # type: ignore[assignment]
         for row in steps_tree.get_children():
@@ -206,8 +213,9 @@ class PipelineViewer(tk.Tk):
         path: str,
         size: tuple[int, int],
         widgets: Dict[str, object],
+        mask_path: str | None = None,
     ) -> None:
-        img = _load_image(path, size)
+        img = _load_image(path, size, mask_path)
         photo = ImageTk.PhotoImage(img)
         label.configure(image=photo)
         label.image = photo
@@ -222,11 +230,13 @@ class PipelineViewer(tk.Tk):
             child.destroy()
         paths = record.inspection_paths
         col = 0
+        mask_path = record.inspection_paths.get("mask")
         for key, title in INTERMEDIATE_LABELS.items():
             path = paths.get(key)
             if not path:
                 continue
-            img = _load_image(path, THUMB_SIZE)
+            mask_for_key = mask_path if key in {"original", "blurred", "mask_overlay"} else None
+            img = _load_image(path, THUMB_SIZE, mask_for_key)
             photo = ImageTk.PhotoImage(img)
             lbl = tk.Label(frame, image=photo, compound="top", text=title, cursor="hand2")
             lbl.image = photo
@@ -244,11 +254,20 @@ class PipelineViewer(tk.Tk):
         label.pack()
 
 
-def _load_image(path: str, size: tuple[int, int] | None = None) -> Image.Image:
+def _load_image(path: str, size: tuple[int, int] | None = None, mask_path: str | None = None) -> Image.Image:
     try:
         image = Image.open(path)
     except (FileNotFoundError, UnidentifiedImageError):
         image = Image.new("RGB", size or (400, 400), color="gray")
+    if mask_path:
+        try:
+            mask_img = Image.open(mask_path).convert("L")
+            if mask_img.size != image.size:
+                mask_img = mask_img.resize(image.size, Image.NEAREST)
+            background = Image.new("RGB", image.size, color="black")
+            image = Image.composite(image, background, mask_img)
+        except (FileNotFoundError, UnidentifiedImageError):
+            pass
     if size:
         image = image.resize(size, Image.LANCZOS)
     return image

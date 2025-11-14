@@ -5,8 +5,9 @@ from __future__ import annotations
 import os
 import shutil
 import stat
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Any
+from typing import Any, Dict, List
 
 import cv2
 import pandas as pd
@@ -17,13 +18,40 @@ from .steps import dataset_loader
 from .steps.background_segmentation import BackgroundSegmenter, SegmentationResult
 from .steps.classifier import RuleBasedClassifier
 from .steps.evaluator import evaluate
-from .steps.feature_extraction import FEATURE_NAMES, extract_features
+from .steps.feature_extraction import FEATURE_NAMES, FeatureThresholds, extract_features
 from .steps.result_writer import ResultWriter
 from .utils import log_info, log_progress
 
 
-def run_pipeline() -> Dict[str, object]:
+@dataclass
+class PipelineOptions:
+    """User-adjustable knobs for segmentation and feature thresholds."""
+
+    blur_size: int = 5
+    morph_kernel_size: int = 11
+    median_kernel_size: int = 5
+    morph_iterations: int = 1
+    close_then_open: bool = True
+    keep_largest_object: bool = True
+    invert_threshold: int = 200
+    laplacian_ksize: int = 3
+    dark_threshold: int = 170
+    bright_threshold: int = 210
+    yellow_threshold: int = 150
+    red_threshold: int = 150
+
+
+def run_pipeline(options: PipelineOptions | None = None) -> Dict[str, object]:
     """Executes the full workflow and returns a dictionary with artefacts."""
+
+    options = options or PipelineOptions()
+    feature_thresholds = FeatureThresholds(
+        dark=options.dark_threshold,
+        bright=options.bright_threshold,
+        yellow=options.yellow_threshold,
+        red=options.red_threshold,
+        laplacian_ksize=options.laplacian_ksize,
+    )
 
     _prepare_output_dirs()
 
@@ -34,7 +62,15 @@ def run_pipeline() -> Dict[str, object]:
         for record in records
     }
     log_info(f"Loaded {len(records)} annotated records.", progress=5.0)
-    segmenter = BackgroundSegmenter()
+    segmenter = BackgroundSegmenter(
+        blur_size=options.blur_size,
+        morph_kernel_size=options.morph_kernel_size,
+        median_kernel_size=options.median_kernel_size,
+        invert_threshold=options.invert_threshold,
+        close_then_open=options.close_then_open,
+        morph_iterations=options.morph_iterations,
+        keep_largest_object=options.keep_largest_object,
+    )
     writer = ResultWriter()
     classifier = RuleBasedClassifier()
 
@@ -51,7 +87,7 @@ def run_pipeline() -> Dict[str, object]:
         record_id = record.relative_path.as_posix()
         image = cv2.imread(str(record.image_path))
         segmentation = segmenter.segment(image)
-        features = extract_features(image, segmentation)
+        features = extract_features(image, segmentation, thresholds=feature_thresholds)
         features["target"] = record.target_label
         features["filename"] = record.image_path.name
         features["record_id"] = record_id

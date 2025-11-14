@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Dict
 
 import cv2
@@ -31,8 +32,31 @@ FEATURE_NAMES = (
 )
 
 
-def extract_features(image: np.ndarray, segmentation: SegmentationResult) -> Dict[str, float]:
+@dataclass(frozen=True)
+class FeatureThresholds:
+    """Stores threshold parameters for lightness and colour fractions."""
+
+    dark: int = 170
+    bright: int = 210
+    yellow: int = 150
+    red: int = 150
+    laplacian_ksize: int = 3
+
+
+DEFAULT_FEATURE_THRESHOLDS = FeatureThresholds()
+
+
+def extract_features(
+    image: np.ndarray,
+    segmentation: SegmentationResult,
+    thresholds: FeatureThresholds | None = None,
+) -> Dict[str, float]:
     """Computes shape, colour and texture descriptors."""
+
+    thresholds = thresholds or DEFAULT_FEATURE_THRESHOLDS
+    laplacian_ksize = thresholds.laplacian_ksize
+    if laplacian_ksize <= 0 or laplacian_ksize % 2 == 0:
+        laplacian_ksize = DEFAULT_FEATURE_THRESHOLDS.laplacian_ksize
 
     mask = segmentation.mask
     if mask.sum() == 0:
@@ -56,7 +80,9 @@ def extract_features(image: np.ndarray, segmentation: SegmentationResult) -> Dic
     a = masked_pixels[:, 1]
     b = masked_pixels[:, 2]
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    laplacian_std = float(np.std(cv2.Laplacian(gray, cv2.CV_64F)[mask == 255]))
+    laplacian_std = float(
+        np.std(cv2.Laplacian(gray, cv2.CV_64F, ksize=laplacian_ksize)[mask == 255])
+    )
 
     features = {
         "area_ratio": float(area / (h * w)),
@@ -72,10 +98,10 @@ def extract_features(image: np.ndarray, segmentation: SegmentationResult) -> Dic
         "a_std": float(a.std()),
         "b_mean": float(b.mean()),
         "b_std": float(b.std()),
-        "dark_fraction": float((L < 170).mean()),
-        "bright_fraction": float((L > 210).mean()),
-        "yellow_fraction": float((b > 150).mean()),
-        "red_fraction": float((a > 150).mean()),
+        "dark_fraction": float((L < thresholds.dark).mean()),
+        "bright_fraction": float((L > thresholds.bright).mean()),
+        "yellow_fraction": float((b > thresholds.yellow).mean()),
+        "red_fraction": float((a > thresholds.red).mean()),
         "laplacian_std": laplacian_std,
     }
     return features

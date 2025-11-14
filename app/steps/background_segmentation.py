@@ -25,8 +25,22 @@ class SegmentationResult:
 class BackgroundSegmenter:
     """Removes the greenish background using adaptive thresholding."""
 
-    def __init__(self, blur_size: int = 5, morph_kernel_size: int = 11) -> None:
+    def __init__(
+        self,
+        blur_size: int = 5,
+        morph_kernel_size: int = 11,
+        median_kernel_size: int = 5,
+        invert_threshold: int = 200,
+        close_then_open: bool = True,
+        morph_iterations: int = 1,
+        keep_largest_object: bool = True,
+    ) -> None:
         self.blur_size = blur_size
+        self.median_kernel_size = median_kernel_size
+        self.invert_threshold = invert_threshold
+        self.close_then_open = close_then_open
+        self.morph_iterations = max(1, morph_iterations)
+        self.keep_largest_object = keep_largest_object
         self.kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (morph_kernel_size, morph_kernel_size))
 
     def segment(self, image: np.ndarray) -> SegmentationResult:
@@ -36,13 +50,18 @@ class BackgroundSegmenter:
         lab = cv2.cvtColor(blurred, cv2.COLOR_BGR2LAB)
         lightness = lab[:, :, 0]
         _, mask = cv2.threshold(lightness, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-        if mask.mean() > 200:
+        if mask.mean() > self.invert_threshold:
             mask = 255 - mask
         raw_mask = mask.copy()
-        mask = cv2.medianBlur(mask, 5)
-        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, self.kernel)
-        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, self.kernel)
-        cleaned = self._keep_largest_object(mask)
+        mask = cv2.medianBlur(mask, self.median_kernel_size)
+        morph_ops = (
+            (cv2.MORPH_CLOSE, cv2.MORPH_OPEN)
+            if self.close_then_open
+            else (cv2.MORPH_OPEN, cv2.MORPH_CLOSE)
+        )
+        for op in morph_ops:
+            mask = cv2.morphologyEx(mask, op, self.kernel, iterations=self.morph_iterations)
+        cleaned = self._keep_largest_object(mask) if self.keep_largest_object else mask
         h, w = cleaned.shape
         area_ratio = float(cleaned.sum() / 255) / (h * w)
         y0, y1, x0, x1 = self._bounding_box(cleaned)

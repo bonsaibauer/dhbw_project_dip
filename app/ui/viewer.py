@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import tkinter as tk
 from pathlib import Path
-from tkinter import ttk
+from tkinter import messagebox, ttk
 from typing import Callable, Dict, List, Tuple
 
 from PIL import Image, ImageTk, UnidentifiedImageError
 
 from .. import config
 from ..models.records import ProcessRecord
+from ..pipeline import PipelineOptions
 from ..utils.logger import get_log_history, register_listener
 
 THUMB_SIZE = (160, 160)
@@ -34,6 +35,25 @@ DETAIL_IMAGE_SLOTS: List[Tuple[str, str, ImageSlotResolver]] = [
     ("classified_masked", "Ergebnis mit Maske", lambda rec: (rec.classified_path, rec.inspection_paths.get("mask"))),
 ]
 
+OPTION_FIELDS: List[Tuple[str, str]] = [
+    ("blur_size", "Blur-Kernel"),
+    ("morph_kernel_size", "Morph-Kernel"),
+    ("median_kernel_size", "Median-Kernel"),
+    ("morph_iterations", "Morph-Iterationen"),
+    ("close_then_open", "Morph zuerst schließen (1/0)"),
+    ("keep_largest_object", "Nur größte Kontur (1/0)"),
+    ("invert_threshold", "Invert-Schwelle (L)"),
+    ("laplacian_ksize", "Laplacian-Kernel"),
+    ("dark_threshold", "L dunkel (<)"),
+    ("bright_threshold", "L hell (>)"),
+    ("yellow_threshold", "Gelb b>"),
+    ("red_threshold", "Rot a>"),
+]
+OPTION_LABELS = {key: label for key, label in OPTION_FIELDS}
+BOOL_OPTION_KEYS = {"close_then_open", "keep_largest_object"}
+KERNEL_OPTION_KEYS = ("blur_size", "morph_kernel_size", "median_kernel_size", "laplacian_ksize")
+THRESHOLD_OPTION_KEYS = ("dark_threshold", "bright_threshold", "yellow_threshold", "red_threshold", "invert_threshold")
+
 
 def _format_hashtag(value: str) -> str:
     normalized = value.strip().lower().replace("/", " ")
@@ -41,13 +61,20 @@ def _format_hashtag(value: str) -> str:
     return f"#{slug or 'tag'}"
 
 
-def launch_viewer(records: List[ProcessRecord] | None = None) -> "PipelineViewer":
-    viewer = PipelineViewer(records or [])
+def launch_viewer(
+    records: List[ProcessRecord] | None = None,
+    start_callback: Callable[[PipelineOptions], None] | None = None,
+) -> "PipelineViewer":
+    viewer = PipelineViewer(records or [], start_callback=start_callback)
     return viewer
 
 
 class PipelineViewer(tk.Tk):
-    def __init__(self, records: List[ProcessRecord]) -> None:
+    def __init__(
+        self,
+        records: List[ProcessRecord],
+        start_callback: Callable[[PipelineOptions], None] | None = None,
+    ) -> None:
         super().__init__()
         self.title("Fryum Inspection Dashboard")
         self.geometry("1400x900")
@@ -57,6 +84,11 @@ class PipelineViewer(tk.Tk):
         self.tab_widgets: Dict[str, Dict[str, object]] = {}
         self.notebook: ttk.Notebook | None = None
         self.status_var = tk.StringVar(value="Pipeline wird ausgefuehrt...")
+        self.start_callback = start_callback
+        self.option_vars: Dict[str, tk.StringVar] = {}
+        self.start_button: ttk.Button | None = None
+        self.current_options = PipelineOptions()
+        self._is_running = False
         self._build_ui()
         self._refresh_tabs()
 
@@ -79,11 +111,16 @@ class PipelineViewer(tk.Tk):
         self.records = records
         self.status_var.set("Pipeline abgeschlossen." if records else "Keine Daten gefunden.")
         self._refresh_tabs()
+        self.set_running(False)
 
     def set_status(self, text: str) -> None:
         self.status_var.set(text)
 
     def _build_ui(self) -> None:
+        control_frame = ttk.Frame(self)
+        control_frame.pack(fill=tk.X, padx=5, pady=(5, 0))
+        self._build_control_panel(control_frame)
+
         paned = ttk.Panedwindow(self, orient=tk.VERTICAL)
         paned.pack(fill=tk.BOTH, expand=True)
         log_frame = ttk.Frame(paned)
@@ -97,6 +134,97 @@ class PipelineViewer(tk.Tk):
         self.notebook = ttk.Notebook(content_frame)
         self.notebook.pack(fill=tk.BOTH, expand=True)
         self._refresh_tabs()
+
+    def _build_control_panel(self, parent: ttk.Frame) -> None:
+        frame = ttk.LabelFrame(parent, text="Parameter & Steuerung", padding=5)
+        frame.pack(fill=tk.X)
+        defaults = vars(self.current_options)
+        self.option_vars.clear()
+
+        for idx, (key, label_text) in enumerate(OPTION_FIELDS):
+            row = idx // 3
+            col = idx % 3
+            ttk.Label(frame, text=label_text).grid(row=row, column=col * 2, padx=4, pady=2, sticky="w")
+            value = defaults.get(key, "")
+            if isinstance(value, bool):
+                value = "1" if value else "0"
+            var = tk.StringVar(value=str(value))
+            entry = ttk.Entry(frame, textvariable=var, width=7)
+            entry.grid(row=row, column=col * 2 + 1, padx=4, pady=2, sticky="w")
+            self.option_vars[key] = var
+
+        frame.columnconfigure(6, weight=1)
+        self.start_button = ttk.Button(
+            frame,
+            text="Bildverarbeitung starten",
+            command=self._on_start_clicked,
+            state=tk.NORMAL if self.start_callback else tk.DISABLED,
+        )
+        self.start_button.grid(row=0, column=6, rowspan=2, padx=8, pady=2, sticky="e")
+
+    def _on_start_clicked(self) -> None:
+        if not self.start_callback:
+            return
+        try:
+            options = self._parse_options()
+        except ValueError as exc:
+            messagebox.showerror("Ungueltige Eingabe", str(exc), parent=self)
+            return
+        self.current_options = options
+        self.set_status("Pipeline wird ausgefuehrt...")
+        self.set_running(True)
+        self.start_callback(options)
+
+    def _parse_options(self) -> PipelineOptions:
+        values: Dict[str, int] = {}
+        for key, var in self.option_vars.items():
+            label = OPTION_LABELS.get(key, key)
+            raw = var.get().strip()
+            if not raw:
+                raise ValueError(f"Bitte einen Wert fuer '{label}' eintragen.")
+            try:
+                values[key] = int(raw)
+            except ValueError as exc:  # pragma: no cover - user input
+                raise ValueError(f"'{raw}' ist keine ganze Zahl fuer '{label}'.") from exc
+
+        for kernel_key in KERNEL_OPTION_KEYS:
+            label = OPTION_LABELS.get(kernel_key, kernel_key)
+            kernel_value = values[kernel_key]
+            if kernel_value <= 0:
+                raise ValueError(f"{label} muss groesser als 0 sein.")
+            if kernel_value % 2 == 0:
+                raise ValueError(f"{label} muss ungerade sein.")
+
+        iterations = values.get("morph_iterations")
+        if iterations is None:
+            raise ValueError("Morph-Iterationen fehlen.")
+        if iterations <= 0:
+            raise ValueError("Morph-Iterationen muessen groesser als 0 sein.")
+
+        for thresh_key in THRESHOLD_OPTION_KEYS:
+            label = OPTION_LABELS.get(thresh_key, thresh_key)
+            threshold_value = values[thresh_key]
+            if threshold_value <= 0 or threshold_value > 255:
+                raise ValueError(f"{label} muss im Bereich 1-255 liegen.")
+
+        bool_options: Dict[str, bool] = {}
+        for bool_key in BOOL_OPTION_KEYS:
+            label = OPTION_LABELS.get(bool_key, bool_key)
+            flag = values.pop(bool_key, 1)
+            if flag not in (0, 1):
+                raise ValueError(f"{label} muss 0 oder 1 sein.")
+            bool_options[bool_key] = bool(flag)
+
+        return PipelineOptions(**values, **bool_options)
+
+    def _set_running(self, running: bool) -> None:
+        self._is_running = running
+        if self.start_button is not None:
+            state = tk.DISABLED if running or not self.start_callback else tk.NORMAL
+            self.start_button.configure(state=state)
+
+    def set_running(self, running: bool) -> None:
+        self._set_running(running)
 
     def _build_log_panel(self, parent: ttk.Frame) -> None:
         ttk.Label(parent, text="Pipeline-Log").pack(anchor="w")
@@ -229,21 +357,87 @@ class PipelineViewer(tk.Tk):
 
     def _build_detail_panel(self, parent: ttk.Frame) -> Dict[str, object]:
         parent.columnconfigure(0, weight=1)
-        parent.rowconfigure(0, weight=1)
-        parent.rowconfigure(2, weight=1)
+        parent.rowconfigure(0, weight=5)
+        parent.rowconfigure(2, weight=0)
 
-        grid_frame = ttk.Frame(parent)
-        grid_frame.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
+        grid_container = ttk.Frame(parent)
+        grid_container.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
+        canvas = tk.Canvas(grid_container, borderwidth=0, highlightthickness=0)
+        scroll = ttk.Scrollbar(grid_container, orient=tk.VERTICAL, command=canvas.yview)
+        canvas.configure(yscrollcommand=scroll.set)
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scroll.pack(side=tk.RIGHT, fill=tk.Y)
+
+        grid_frame = ttk.Frame(canvas)
         grid_frame.columnconfigure((0, 1, 2), weight=1)
+        window_id = canvas.create_window((0, 0), window=grid_frame, anchor="nw")
 
-        grid_labels: Dict[str, tk.Label] = {}
+        def _sync_scroll(_event: tk.Event) -> None:
+            canvas.configure(scrollregion=canvas.bbox("all"))
+            canvas.itemconfigure(window_id, width=canvas.winfo_width())
+
+        grid_frame.bind("<Configure>", _sync_scroll)
+        canvas.bind(
+            "<Configure>",
+            lambda event: canvas.itemconfigure(window_id, width=event.width),
+        )
+        active_scroll = {"count": 0}
+
+        def _on_mousewheel(event: tk.Event) -> None:
+            delta = event.delta
+            if delta == 0:
+                return
+            canvas.yview_scroll(int(-delta / 120), "units")
+
+        def _on_mousewheel_up(_event: tk.Event) -> None:
+            canvas.yview_scroll(-1, "units")
+
+        def _on_mousewheel_down(_event: tk.Event) -> None:
+            canvas.yview_scroll(1, "units")
+
+        def _set_mousewheel_active(active: bool) -> None:
+            if active:
+                if active_scroll["count"] == 0:
+                    canvas.bind_all("<MouseWheel>", _on_mousewheel)
+                    canvas.bind_all("<Button-4>", _on_mousewheel_up)
+                    canvas.bind_all("<Button-5>", _on_mousewheel_down)
+                active_scroll["count"] += 1
+            else:
+                active_scroll["count"] = max(0, active_scroll["count"] - 1)
+                if active_scroll["count"] == 0:
+                    canvas.unbind_all("<MouseWheel>")
+                    canvas.unbind_all("<Button-4>")
+                    canvas.unbind_all("<Button-5>")
+
+        def _register_scroll_target(widget: tk.Widget) -> None:
+            widget.bind("<Enter>", lambda _e: _set_mousewheel_active(True), add=True)
+            widget.bind("<Leave>", lambda _e: _set_mousewheel_active(False), add=True)
+
+        _register_scroll_target(canvas)
+
+        grid_labels: Dict[str, Dict[str, tk.Widget]] = {}
+        min_slot_height = THUMB_SIZE[1] + 40
         for idx, (slot_key, title, _resolver) in enumerate(DETAIL_IMAGE_SLOTS):
             row = idx // 3
             col = idx % 3
-            label = tk.Label(grid_frame, text=title, bd=1, relief=tk.SUNKEN, compound="top", cursor="hand2")
-            label.grid(row=row, column=col, padx=4, pady=4, sticky="nsew")
-            grid_frame.rowconfigure(row, weight=1)
-            grid_labels[slot_key] = label
+            slot_frame = ttk.Frame(grid_frame, padding=2, relief=tk.SUNKEN)
+            slot_frame.grid(row=row, column=col, padx=4, pady=4, sticky="nsew")
+            slot_frame.columnconfigure(0, weight=1)
+            image_label = tk.Label(slot_frame, bd=1, relief=tk.SUNKEN, cursor="hand2")
+            image_label.pack(fill=tk.BOTH, expand=True)
+            caption = ttk.Label(
+                slot_frame,
+                text=title,
+                anchor="center",
+                wraplength=THUMB_SIZE[0],
+                justify=tk.CENTER,
+            )
+            caption.pack(fill=tk.X, pady=(2, 0))
+            grid_frame.rowconfigure(row, weight=1, minsize=min_slot_height)
+            grid_labels[slot_key] = {"image": image_label, "caption": caption}
+            _register_scroll_target(slot_frame)
+            _register_scroll_target(image_label)
+            _register_scroll_target(caption)
 
         meta_var = tk.StringVar()
         meta_label = ttk.Label(parent, textvariable=meta_var, justify=tk.LEFT)
@@ -256,7 +450,7 @@ class PipelineViewer(tk.Tk):
         steps.column("step", width=160, anchor="w")
         steps.column("status", width=120, anchor="center")
         steps.column("details", anchor="w")
-        steps.grid(row=2, column=0, sticky="nsew", padx=5, pady=5)
+        steps.grid(row=2, column=0, sticky="ew", padx=5, pady=5)
 
         return {
             "grid_labels": grid_labels,
@@ -343,16 +537,19 @@ class PipelineViewer(tk.Tk):
         widgets["meta_var"].set(meta_text)
 
         for slot_key, title, resolver in DETAIL_IMAGE_SLOTS:
-            label: tk.Label = widgets["grid_labels"][slot_key]  # type: ignore[assignment]
+            slot_widgets = widgets["grid_labels"][slot_key]
+            label: tk.Label = slot_widgets["image"]  # type: ignore[assignment]
+            caption: ttk.Label = slot_widgets["caption"]  # type: ignore[assignment]
             path, override_mask = resolver(record)
+            caption.configure(text=title)
             if path:
                 applied_mask = override_mask if override_mask is not None else None
                 self._set_image(label, path, THUMB_SIZE, applied_mask)
-                label.configure(text=title)
             else:
-                label.configure(text=f"{title}\n(nicht verfuegbar)", image="")
+                label.configure(image="")
                 label.image = None
                 label.unbind("<Button-1>")
+                caption.configure(text=f"{title}\n(nicht verfuegbar)")
 
         steps_tree: ttk.Treeview = widgets["steps"]  # type: ignore[assignment]
         for row in steps_tree.get_children():

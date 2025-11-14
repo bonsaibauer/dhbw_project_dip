@@ -9,6 +9,7 @@ env/
 
 # Embedded runtime installation
 runtime/python311*/
+data/
 
 # IDE tooling
 .idea/

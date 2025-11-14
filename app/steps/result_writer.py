@@ -18,6 +18,7 @@ class SavedItem:
     is_correct: bool
     predicted_label: str
     target_label: str
+    misclassified_path: Path | None = None
 
 
 class ResultWriter:
@@ -49,11 +50,19 @@ class ResultWriter:
             f"Saved {filename} -> {out_path.name} (pred={prediction}, target={target})",
         )
         is_correct = prediction == target
+        mismatch_path: Path | None = None
         if not is_correct:
             mismatch_name = f"{Path(filename).stem}__gt-{target}_pred-{prediction}{Path(filename).suffix}"
-            cv2.imwrite(str(self.misclassified_dir / mismatch_name), segmentation.cropped_image)
+            mismatch_path = self.misclassified_dir / mismatch_name
+            cv2.imwrite(str(mismatch_path), segmentation.cropped_image)
             log_info(f"Misclassification stored as {mismatch_name} in Falsch.")
-        return SavedItem(image_path=out_path, is_correct=is_correct, predicted_label=prediction, target_label=target)
+        return SavedItem(
+            image_path=out_path,
+            is_correct=is_correct,
+            predicted_label=prediction,
+            target_label=target,
+            misclassified_path=mismatch_path,
+        )
 
     @staticmethod
     def _prefixed_name(filename: str, prediction: str, symmetry: float) -> str:

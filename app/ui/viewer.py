@@ -60,7 +60,6 @@ AUTO_RELATIVE_PATHS: Dict[str, Tuple[str, ...]] = {
     "images_dir": ("Images",),
     "normal_dir": ("Images", "Normal"),
     "anomaly_dir": ("Images", "Anomaly"),
-    "mask_dir": ("Masks",),
     "annotation_file": ("image_anno.csv",),
 }
 
@@ -839,6 +838,15 @@ class PipelineViewer(tk.Tk):
     def _record_key(self, record: ProcessRecord) -> str:
         return record.record_id or record.filename
 
+    def _display_filename(self, record: ProcessRecord) -> str:
+        mismatch_path = getattr(record, "misclassified_path", None)
+        if mismatch_path and record.prediction and record.target and record.prediction != record.target:
+            try:
+                return Path(mismatch_path).name
+            except OSError:
+                return mismatch_path
+        return record.filename
+
     def _is_multi_category_record(self, record: ProcessRecord) -> bool:
         return self._record_key(record) in self._multi_category_records
 
@@ -856,7 +864,8 @@ class PipelineViewer(tk.Tk):
         tags = [self._format_tag_display(tag) for tag in self._record_tags(record)]
         tag_text = " ".join(tags) if tags else "-"
         multi_hint = "  [Mehrfache Kategorie]" if self._is_multi_category_record(record) else ""
-        return f"{record.filename} ({record.prediction})  {tag_text}{multi_hint}"
+        display_name = self._display_filename(record)
+        return f"{display_name} ({record.prediction})  {tag_text}{multi_hint}"
 
     @staticmethod
     def _format_tag_display(tag: str) -> str:
@@ -905,11 +914,14 @@ class PipelineViewer(tk.Tk):
         return sections
 
     def _update_detail(self, widgets: Dict[str, object], record: ProcessRecord) -> None:
-        meta_text = (
-            f"Datei: {record.filename}\n"
-            f"Klassifikation: {record.prediction} (Soll: {record.target})\n"
-            + "\n".join(f"{key}: {value:.3f}" for key, value in record.metrics.items())
-        )
+        display_name = self._display_filename(record)
+        meta_lines = [f"Datei: {record.filename}"]
+        if display_name != record.filename and record.prediction != record.target:
+            meta_lines.append(f"Falsch gespeichert als: {display_name}")
+        meta_lines.append(f"Klassifikation: {record.prediction} (Soll: {record.target})")
+        for key, value in record.metrics.items():
+            meta_lines.append(f"{key}: {value:.3f}")
+        meta_text = "\n".join(meta_lines)
         if self._is_multi_category_record(record):
             meta_text += "\nHinweis: Dieses Bild ist mehreren Kategorien zugeordnet."
         widgets["meta_var"].set(meta_text)

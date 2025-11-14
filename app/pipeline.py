@@ -161,6 +161,7 @@ def run_pipeline(options: PipelineOptions | None = None, cancel_event: Event | N
                 process_steps=process_steps,
                 tags=record_tags.get(record_id, []),
                 metrics=metrics,
+                misclassified_path=str(saved.misclassified_path) if saved.misclassified_path else None,
             )
         )
         log_progress("Saving outputs", idx, total_files)

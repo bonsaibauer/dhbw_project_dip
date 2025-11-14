@@ -13,7 +13,6 @@ _PATH_FIELD_DEFS: Tuple[Tuple[str, str, str], ...] = (
     ("images_dir", "Bilder (Images)", "dir"),
     ("normal_dir", "Normal-Bilder", "dir"),
     ("anomaly_dir", "Anomaly-Bilder", "dir"),
-    ("mask_dir", "Maskenordner", "dir"),
     ("annotation_file", "Annotation CSV", "file"),
 )
 
@@ -39,7 +38,6 @@ def _resolve_paths(settings: Dict[str, str]) -> Dict[str, Path]:
         "images_dir": data_dir / "Images",
         "normal_dir": data_dir / "Images" / "Normal",
         "anomaly_dir": data_dir / "Images" / "Anomaly",
-        "mask_dir": data_dir / "Masks",
         "annotation_file": data_dir / "image_anno.csv",
     }
     resolved: Dict[str, Path] = {}
@@ -57,7 +55,6 @@ IMAGES_DIR = _RESOLVED_PATHS["images_dir"]
 NORMAL_DIR = _RESOLVED_PATHS["normal_dir"]
 ANOMALY_DIR = _RESOLVED_PATHS["anomaly_dir"]
 ANNOTATION_FILE = _RESOLVED_PATHS["annotation_file"]
-MASK_DIR = _RESOLVED_PATHS["mask_dir"]
 
 OUTPUT_ROOT = BASE_DIR / "output"
 RUN_IMAGE_DIR = OUTPUT_ROOT / "classified"
@@ -122,7 +119,7 @@ def reload_paths() -> None:
     """Reload path overrides from disk and update module globals."""
 
     global _PATH_SETTINGS, _RESOLVED_PATHS
-    global DATA_DIR, IMAGES_DIR, NORMAL_DIR, ANOMALY_DIR, ANNOTATION_FILE, MASK_DIR
+    global DATA_DIR, IMAGES_DIR, NORMAL_DIR, ANOMALY_DIR, ANNOTATION_FILE
 
     _PATH_SETTINGS = _load_path_settings()
     _RESOLVED_PATHS = _resolve_paths(_PATH_SETTINGS)
@@ -131,7 +128,6 @@ def reload_paths() -> None:
     NORMAL_DIR = _RESOLVED_PATHS["normal_dir"]
     ANOMALY_DIR = _RESOLVED_PATHS["anomaly_dir"]
     ANNOTATION_FILE = _RESOLVED_PATHS["annotation_file"]
-    MASK_DIR = _RESOLVED_PATHS["mask_dir"]
 
 
 def get_path_fields() -> List[Dict[str, object]]:

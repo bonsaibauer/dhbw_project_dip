@@ -18,3 +18,4 @@ class ProcessRecord:
     process_steps: List[Dict[str, str]]
     tags: List[str] = field(default_factory=list)
     metrics: Dict[str, float] = field(default_factory=dict)
+    misclassified_path: str | None = None

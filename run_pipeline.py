@@ -1,6 +1,6 @@
 """CLI entrypoint for the fryum inspection pipeline."""
 
-from src.pipeline import run_pipeline
+from app.pipeline import run_pipeline
 
 
 if __name__ == "__main__":

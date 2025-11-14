@@ -75,3 +75,17 @@ git pull origin main
    https://github.com/bonsaibauer/dhbw_project_dip  
 3. Einen **Pull Request (PR)** für deinen Branch erstellen  
 4. Änderungen und Zweck kurz beschreiben
+
+## Lokale Ausführung
+
+Das Repository enthält ein Windows-Skript, das eine virtuelle Umgebung erstellt, alle Abhängigkeiten installiert und anschließend die komplette Pipeline startet:
+
+```powershell
+setup_and_run.bat
+```
+
+Das Skript nutzt ausschließlich die mitgelieferte Datei `runtime\python-3.13.9-embed-amd64.zip`, entpackt bei Bedarf den Interpreter nach `runtime\python-3.13.9-embed-amd64\` und vermeidet damit jede Abhängigkeit von einer global installierten Python-Version.
+
+
+
+

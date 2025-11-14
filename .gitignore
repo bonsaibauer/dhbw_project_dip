@@ -1,0 +1,26 @@
+# Byte-compiled / cache
+__pycache__/
+*.py[cod]
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Embedded runtime extraction
+runtime/python-*/
+runtime/get-pip.py
+
+# IDE tooling
+.idea/
+.vscode/
+
+# Logs / reports
+*.log
+output/
+runtime/python-3.13.9-embed-amd64/Lib/site-packages/
+runtime/python-3.13.9-embed-amd64/Scripts/
+
+# System junk
+Thumbs.db
+Desktop.ini

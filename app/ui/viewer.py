@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import tkinter as tk
 from pathlib import Path
-from tkinter import messagebox, ttk
+from tkinter import filedialog, messagebox, ttk
 from typing import Callable, Dict, List, Tuple
 
 from PIL import Image, ImageTk, UnidentifiedImageError
@@ -53,6 +53,13 @@ OPTION_LABELS = {key: label for key, label in OPTION_FIELDS}
 BOOL_OPTION_KEYS = {"close_then_open", "keep_largest_object"}
 KERNEL_OPTION_KEYS = ("blur_size", "morph_kernel_size", "median_kernel_size", "laplacian_ksize")
 THRESHOLD_OPTION_KEYS = ("dark_threshold", "bright_threshold", "yellow_threshold", "red_threshold", "invert_threshold")
+AUTO_RELATIVE_PATHS: Dict[str, Tuple[str, ...]] = {
+    "images_dir": ("Images",),
+    "normal_dir": ("Images", "Normal"),
+    "anomaly_dir": ("Images", "Anomaly"),
+    "mask_dir": ("Masks",),
+    "annotation_file": ("image_anno.csv",),
+}
 
 
 def _format_hashtag(value: str) -> str:
@@ -64,8 +71,9 @@ def _format_hashtag(value: str) -> str:
 def launch_viewer(
     records: List[ProcessRecord] | None = None,
     start_callback: Callable[[PipelineOptions], None] | None = None,
+    stop_callback: Callable[[], None] | None = None,
 ) -> "PipelineViewer":
-    viewer = PipelineViewer(records or [], start_callback=start_callback)
+    viewer = PipelineViewer(records or [], start_callback=start_callback, stop_callback=stop_callback)
     return viewer
 
 
@@ -74,6 +82,7 @@ class PipelineViewer(tk.Tk):
         self,
         records: List[ProcessRecord],
         start_callback: Callable[[PipelineOptions], None] | None = None,
+        stop_callback: Callable[[], None] | None = None,
     ) -> None:
         super().__init__()
         self.title("Fryum Inspection Dashboard")
@@ -85,10 +94,24 @@ class PipelineViewer(tk.Tk):
         self.notebook: ttk.Notebook | None = None
         self.status_var = tk.StringVar(value="Pipeline wird ausgefuehrt...")
         self.start_callback = start_callback
+        self.stop_callback = stop_callback
         self.option_vars: Dict[str, tk.StringVar] = {}
         self.start_button: ttk.Button | None = None
+        self.stop_button: ttk.Button | None = None
         self.current_options = PipelineOptions()
         self._is_running = False
+        self.setup_window: tk.Toplevel | None = None
+        self.setup_required = bool(config.missing_paths())
+        self.path_vars: Dict[str, tk.StringVar] = {}
+        self.path_status_labels: Dict[str, ttk.Label] = {}
+        self.path_inputs: Dict[str, Dict[str, ttk.Widget]] = {}
+        self.path_field_meta: Dict[str, Dict[str, object]] = {}
+        self.top_tabs: ttk.Notebook | None = None
+        self.log_tab: ttk.Frame | None = None
+        self.setup_tab: ttk.Frame | None = None
+        self.options_tab: ttk.Frame | None = None
+        self.data_tab_frames: List[ttk.Frame] = []
+        self.log_text: tk.Text | None = None
         self._build_ui()
         self._refresh_tabs()
 
@@ -117,23 +140,26 @@ class PipelineViewer(tk.Tk):
         self.status_var.set(text)
 
     def _build_ui(self) -> None:
-        control_frame = ttk.Frame(self)
-        control_frame.pack(fill=tk.X, padx=5, pady=(5, 0))
-        self._build_control_panel(control_frame)
+        self.top_tabs = ttk.Notebook(self)
+        self.top_tabs.pack(fill=tk.X, padx=5, pady=(5, 0))
+        self.options_tab = ttk.Frame(self.top_tabs)
+        self.setup_tab = ttk.Frame(self.top_tabs)
+        self.log_tab = ttk.Frame(self.top_tabs)
+        self.top_tabs.add(self.log_tab, text="Log")
+        self.top_tabs.add(self.options_tab, text="Optionen")
+        self.top_tabs.add(self.setup_tab, text="Setup")
+        self._build_log_tab(self.log_tab)
+        self._build_control_panel(self.options_tab)
+        self._build_setup_tab(self.setup_tab)
+        self.top_tabs.select(self.setup_tab if self.setup_required else self.log_tab)
 
-        paned = ttk.Panedwindow(self, orient=tk.VERTICAL)
-        paned.pack(fill=tk.BOTH, expand=True)
-        log_frame = ttk.Frame(paned)
-        paned.add(log_frame, weight=1)
-        self._build_log_panel(log_frame)
-
-        content_frame = ttk.Frame(paned)
-        paned.add(content_frame, weight=3)
-        status_label = ttk.Label(content_frame, textvariable=self.status_var, anchor="w")
+        status_label = ttk.Label(self, textvariable=self.status_var, anchor="w")
         status_label.pack(fill=tk.X, padx=5, pady=3)
-        self.notebook = ttk.Notebook(content_frame)
+        self.notebook = ttk.Notebook(self)
         self.notebook.pack(fill=tk.BOTH, expand=True)
         self._refresh_tabs()
+        if self.setup_required:
+            self.after(200, self._open_setup_popup)
 
     def _build_control_panel(self, parent: ttk.Frame) -> None:
         frame = ttk.LabelFrame(parent, text="Parameter & Steuerung", padding=5)
@@ -141,29 +167,282 @@ class PipelineViewer(tk.Tk):
         defaults = vars(self.current_options)
         self.option_vars.clear()
 
-        for idx, (key, label_text) in enumerate(OPTION_FIELDS):
-            row = idx // 3
-            col = idx % 3
-            ttk.Label(frame, text=label_text).grid(row=row, column=col * 2, padx=4, pady=2, sticky="w")
+        for row, (key, label_text) in enumerate(OPTION_FIELDS):
+            ttk.Label(frame, text=label_text).grid(row=row, column=0, padx=4, pady=2, sticky="w")
             value = defaults.get(key, "")
             if isinstance(value, bool):
                 value = "1" if value else "0"
             var = tk.StringVar(value=str(value))
             entry = ttk.Entry(frame, textvariable=var, width=7)
-            entry.grid(row=row, column=col * 2 + 1, padx=4, pady=2, sticky="w")
+            entry.grid(row=row, column=1, padx=4, pady=2, sticky="ew")
             self.option_vars[key] = var
 
-        frame.columnconfigure(6, weight=1)
+        frame.columnconfigure(1, weight=1)
+
+    def _build_log_tab(self, parent: ttk.Frame) -> None:
+        button_bar = ttk.Frame(parent)
+        button_bar.pack(fill=tk.X, padx=5, pady=5)
         self.start_button = ttk.Button(
-            frame,
+            button_bar,
             text="Bildverarbeitung starten",
             command=self._on_start_clicked,
-            state=tk.NORMAL if self.start_callback else tk.DISABLED,
         )
-        self.start_button.grid(row=0, column=6, rowspan=2, padx=8, pady=2, sticky="e")
+        self.start_button.pack(side=tk.LEFT, padx=(0, 8))
+        self.stop_button = ttk.Button(
+            button_bar,
+            text="Stop",
+            command=self._on_stop_clicked,
+        )
+        self.stop_button.pack(side=tk.LEFT)
+        self._update_start_button_state()
+
+        ttk.Label(parent, text="Pipeline-Log").pack(anchor="w", padx=5)
+        text = tk.Text(parent, height=12, wrap="none")
+        scroll = ttk.Scrollbar(parent, command=text.yview)
+        text.configure(yscrollcommand=scroll.set)
+        text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(5, 0), pady=5)
+        scroll.pack(side=tk.RIGHT, fill=tk.Y, pady=5, padx=(0, 5))
+        for line in self.log_history:
+            text.insert(tk.END, line + "\n")
+        text.see(tk.END)
+        text.configure(state=tk.DISABLED)
+
+        def _append(line: str) -> None:
+            text.configure(state=tk.NORMAL)
+            text.insert(tk.END, line + "\n")
+            text.see(tk.END)
+            text.configure(state=tk.DISABLED)
+
+        register_listener(_append)
+        self.log_text = text
+
+    def _build_setup_tab(self, parent: ttk.Frame) -> Dict[str, object]:
+        info = ttk.Label(
+            parent,
+            text="Projektpfade konfigurieren. Wenn Ordner/Dateien fehlen, bitte passende Pfade auswählen.",
+            wraplength=600,
+            justify=tk.LEFT,
+        )
+        info.pack(anchor="w", padx=8, pady=5)
+        form = ttk.Frame(parent)
+        form.pack(fill=tk.BOTH, expand=True, padx=8, pady=5)
+        self.path_vars = {}
+        self.path_status_labels = {}
+        self._create_path_form(form, self.path_vars, self.path_status_labels, is_main=True)
+        self._apply_auto_paths()
+        btns = ttk.Frame(parent)
+        btns.pack(fill=tk.X, padx=8, pady=5)
+        ttk.Button(btns, text="Neu laden", command=self._refresh_path_fields).pack(side=tk.RIGHT)
+        ttk.Button(btns, text="Pfad speichern", command=self._save_paths).pack(side=tk.RIGHT, padx=5)
+        return {"frame": parent, "form": form}
+
+    def _create_path_form(
+        self,
+        parent: ttk.Frame,
+        var_map: Dict[str, tk.StringVar],
+        status_labels: Dict[str, ttk.Label] | None = None,
+        is_main: bool = False,
+    ) -> None:
+        fields = config.get_path_fields()
+        store_widgets = is_main
+        for idx, field in enumerate(fields):
+            key = field["key"]
+            if store_widgets:
+                self.path_field_meta[key] = {"type": field["type"]}
+            ttk.Label(parent, text=field["label"]).grid(row=idx, column=0, sticky="w", pady=2)
+            var = var_map.get(key)
+            if var is None:
+                var = tk.StringVar(value=field["path"])
+                var_map[key] = var
+            entry = ttk.Entry(parent, textvariable=var, width=60)
+            entry.grid(row=idx, column=1, sticky="ew", padx=5, pady=2)
+            button = ttk.Button(
+                parent,
+                text="...",
+                width=3,
+                command=lambda t=field["type"], v=var, k=key, main=is_main: self._browse_path(t, v, k if main else None, main),
+            )
+            button.grid(row=idx, column=2, padx=5, pady=2)
+            status_text = "OK" if field["exists"] else "Fehlt"
+            status_color = "green" if field["exists"] else "red"
+            status = ttk.Label(parent, text=status_text, foreground=status_color)
+            status.grid(row=idx, column=3, padx=5, pady=2)
+            if status_labels is not None:
+                status_labels[key] = status
+            if store_widgets:
+                self.path_inputs[key] = {"entry": entry, "button": button}
+                if key != "data_dir":
+                    self._set_path_field_state(key, False)
+                else:
+                    var.trace_add("write", lambda *_: self._on_data_dir_changed())
+        parent.columnconfigure(1, weight=1)
+
+    def _set_path_field_state(self, key: str, enabled: bool) -> None:
+        widgets = self.path_inputs.get(key)
+        if not widgets:
+            return
+        entry = widgets["entry"]
+        button = widgets["button"]
+        entry.configure(state="normal" if enabled else "disabled")
+        if enabled:
+            button.state(["!disabled"])
+        else:
+            button.state(["disabled"])
+
+    def _browse_path(self, kind: str, var: tk.StringVar, key: str | None = None, is_main: bool = False) -> None:
+        initial = var.get() or str(config.BASE_DIR)
+        selected = ""
+        if kind == "dir":
+            selected = filedialog.askdirectory(parent=self, initialdir=initial)
+        else:
+            selected = filedialog.askopenfilename(parent=self, initialdir=initial)
+        if selected:
+            var.set(selected)
+            if is_main and key == "data_dir":
+                self._apply_auto_paths()
+
+    def _on_data_dir_changed(self) -> None:
+        self._apply_auto_paths()
+
+    def _apply_auto_paths(self) -> None:
+        data_var = self.path_vars.get("data_dir")
+        if not data_var:
+            return
+        base_value = data_var.get().strip()
+        base_path = Path(base_value) if base_value else None
+        if not base_path or not base_path.is_dir():
+            for key in AUTO_RELATIVE_PATHS.keys():
+                self._set_path_field_state(key, False)
+            self._update_status_label("data_dir", base_path)
+            return
+        structure_ok, derived = self._derive_auto_paths(base_path)
+        self._update_status_label("data_dir", base_path)
+        if structure_ok:
+            for key, path in derived.items():
+                var = self.path_vars.get(key)
+                if var is not None:
+                    var.set(str(path))
+                self._set_path_field_state(key, False)
+                self._update_status_label(key, path)
+        else:
+            for key in AUTO_RELATIVE_PATHS.keys():
+                self._set_path_field_state(key, True)
+                self._update_status_label(key)
+
+    def _derive_auto_paths(self, base_path: Path) -> Tuple[bool, Dict[str, Path]]:
+        derived: Dict[str, Path] = {}
+        for key, parts in AUTO_RELATIVE_PATHS.items():
+            derived[key] = base_path.joinpath(*parts)
+        structure_ok = True
+        for key, path in derived.items():
+            field_meta = self.path_field_meta.get(key, {})
+            kind = field_meta.get("type", "dir")
+            exists = path.is_file() if kind == "file" else path.is_dir()
+            if not exists:
+                structure_ok = False
+                break
+        return structure_ok, derived
+
+    def _update_status_label(self, key: str, explicit_path: Path | None = None) -> None:
+        label = self.path_status_labels.get(key)
+        if not label:
+            return
+        field_meta = self.path_field_meta.get(key, {})
+        kind = field_meta.get("type", "dir")
+        if explicit_path is None:
+            var = self.path_vars.get(key)
+            if not var:
+                return
+            explicit_path = Path(var.get())
+        exists = explicit_path.is_file() if kind == "file" else explicit_path.is_dir()
+        label.configure(text="OK" if exists else "Fehlt", foreground=("green" if exists else "red"))
+
+    def _save_paths(self, var_map: Dict[str, tk.StringVar] | None = None, close_popup: bool = False) -> None:
+        target = var_map or self.path_vars
+        payload = {key: var.get().strip() for key, var in target.items()}
+        config.save_path_settings(payload)
+        self._refresh_path_fields()
+        if close_popup:
+            self._close_setup_popup()
+        messagebox.showinfo("Setup", "Pfade wurden gespeichert.", parent=self)
+
+    def _refresh_path_fields(self) -> None:
+        fields = config.get_path_fields()
+        for field in fields:
+            key = field["key"]
+            if key in self.path_vars:
+                self.path_vars[key].set(field["path"])
+            label = self.path_status_labels.get(key)
+            if label:
+                exists = field["exists"]
+                label.configure(text="OK" if exists else "Fehlt", foreground=("green" if exists else "red"))
+        self._apply_auto_paths()
+        self.setup_required = bool(config.missing_paths())
+        if self.setup_required and self.top_tabs is not None and self.setup_tab is not None:
+            self.top_tabs.select(self.setup_tab)
+        if not self.setup_required:
+            self._close_setup_popup()
+            if self.top_tabs is not None and self.log_tab is not None:
+                self.top_tabs.select(self.log_tab)
+        self._update_start_button_state()
+
+    def _open_setup_popup(self) -> None:
+        if self.setup_window and self.setup_window.winfo_exists():
+            self.setup_window.lift()
+            return
+        top = tk.Toplevel(self)
+        top.title("Setup")
+        top.geometry("700x400")
+        self.setup_window = top
+        ttk.Label(
+            top,
+            text="Fehlende Pfade erkannt. Bitte waehle die gueltigen Ordner/Dateien aus.",
+            wraplength=650,
+        ).pack(anchor="w", padx=10, pady=8)
+        form = ttk.Frame(top)
+        form.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+        local_vars: Dict[str, tk.StringVar] = {}
+        self._create_path_form(form, local_vars, status_labels=None, is_main=False)
+        btns = ttk.Frame(top)
+        btns.pack(fill=tk.X, padx=10, pady=10)
+        ttk.Button(btns, text="Schliessen", command=self._close_setup_popup).pack(side=tk.RIGHT)
+        ttk.Button(
+            btns,
+            text="Pfad speichern",
+            command=lambda: self._save_paths(local_vars, close_popup=True),
+        ).pack(side=tk.RIGHT, padx=5)
+
+    def _close_setup_popup(self) -> None:
+        if self.setup_window and self.setup_window.winfo_exists():
+            self.setup_window.destroy()
+        self.setup_window = None
+
+    def notify_setup_required(self) -> None:
+        self.setup_required = True
+        self.set_status("Setup erforderlich - bitte Pfade konfigurieren.")
+        if self.top_tabs is not None and self.setup_tab is not None:
+            self.top_tabs.select(self.setup_tab)
+        self._update_start_button_state()
+        self._open_setup_popup()
+
+    def _update_start_button_state(self) -> None:
+        if self.start_button is not None:
+            state = (
+                tk.NORMAL
+                if self.start_callback and not self._is_running and not self.setup_required
+                else tk.DISABLED
+            )
+            self.start_button.configure(state=state)
+        if self.stop_button is not None:
+            stop_state = tk.NORMAL if self._is_running and self.stop_callback else tk.DISABLED
+            self.stop_button.configure(state=stop_state)
 
     def _on_start_clicked(self) -> None:
         if not self.start_callback:
+            return
+        if self.setup_required:
+            messagebox.showerror("Setup erforderlich", "Bitte Pfade im Setup-Tab konfigurieren.", parent=self)
+            self._open_setup_popup()
             return
         try:
             options = self._parse_options()
@@ -174,6 +453,15 @@ class PipelineViewer(tk.Tk):
         self.set_status("Pipeline wird ausgefuehrt...")
         self.set_running(True)
         self.start_callback(options)
+
+    def _on_stop_clicked(self) -> None:
+        if not self.stop_callback:
+            return
+        if not self._is_running:
+            messagebox.showinfo("Pipeline", "Es laeuft aktuell kein Auftrag.", parent=self)
+            return
+        self.stop_callback()
+        self.set_status("Stop angefordert...")
 
     def _parse_options(self) -> PipelineOptions:
         values: Dict[str, int] = {}
@@ -219,46 +507,27 @@ class PipelineViewer(tk.Tk):
 
     def _set_running(self, running: bool) -> None:
         self._is_running = running
-        if self.start_button is not None:
-            state = tk.DISABLED if running or not self.start_callback else tk.NORMAL
-            self.start_button.configure(state=state)
+        self._update_start_button_state()
 
     def set_running(self, running: bool) -> None:
         self._set_running(running)
-
-    def _build_log_panel(self, parent: ttk.Frame) -> None:
-        ttk.Label(parent, text="Pipeline-Log").pack(anchor="w")
-        text = tk.Text(parent, height=12, wrap="none")
-        scroll = ttk.Scrollbar(parent, command=text.yview)
-        text.configure(yscrollcommand=scroll.set)
-        text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scroll.pack(side=tk.RIGHT, fill=tk.Y)
-        for line in self.log_history:
-            text.insert(tk.END, line + "\n")
-        text.see(tk.END)
-        text.configure(state=tk.DISABLED)
-
-        def _append(line: str) -> None:
-            text.configure(state=tk.NORMAL)
-            text.insert(tk.END, line + "\n")
-            text.see(tk.END)
-            text.configure(state=tk.DISABLED)
-
-        register_listener(_append)
 
     def _refresh_tabs(self) -> None:
         if self.notebook is None:
             return
         self._init_state()
-        for tab_id in self.notebook.tabs():
-            self.notebook.forget(tab_id)
-        self.tab_widgets.clear()
+        for frame in self.data_tab_frames:
+            self.notebook.forget(frame)
+        self.data_tab_frames = []
+        for key in list(self.tab_widgets.keys()):
+            self.tab_widgets.pop(key, None)
         for tab in ["Alle", *config.TARGET_CLASSES]:
             records = self.grouped_records.get(tab, [])
             frame = ttk.Frame(self.notebook)
             self.notebook.add(frame, text=f"{tab} ({len(records)})")
             widgets = self._build_tab(frame, records, tab)
             self.tab_widgets[tab] = widgets
+            self.data_tab_frames.append(frame)
 
     def _build_tab(self, parent: ttk.Frame, records: List[ProcessRecord], tab_name: str) -> Dict[str, object]:
         container = ttk.Panedwindow(parent, orient=tk.HORIZONTAL)

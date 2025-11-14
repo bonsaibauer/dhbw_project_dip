@@ -7,6 +7,7 @@ import shutil
 import stat
 from dataclasses import dataclass
 from pathlib import Path
+from threading import Event
 from typing import Any, Dict, List
 
 import cv2
@@ -41,7 +42,7 @@ class PipelineOptions:
     red_threshold: int = 150
 
 
-def run_pipeline(options: PipelineOptions | None = None) -> Dict[str, object]:
+def run_pipeline(options: PipelineOptions | None = None, cancel_event: Event | None = None) -> Dict[str, object]:
     """Executes the full workflow and returns a dictionary with artefacts."""
 
     options = options or PipelineOptions()
@@ -53,7 +54,13 @@ def run_pipeline(options: PipelineOptions | None = None) -> Dict[str, object]:
         laplacian_ksize=options.laplacian_ksize,
     )
 
+    def _check_cancel(stage: str) -> None:
+        if cancel_event and cancel_event.is_set():
+            log_info(f"Pipeline abgebrochen ({stage}).", progress=None)
+            raise RuntimeError("Pipeline cancelled")
+
     _prepare_output_dirs()
+    _check_cancel("Initialisierung")
 
     log_info("Starting fryum quality pipeline.", progress=0.0)
     records = dataset_loader.load_dataset()
@@ -84,6 +91,7 @@ def run_pipeline(options: PipelineOptions | None = None) -> Dict[str, object]:
     log_info("Running segmentation and feature extraction.", progress=10.0)
     total_records = max(1, len(records))
     for idx, record in enumerate(records, start=1):
+        _check_cancel("Segmentierung")
         record_id = record.relative_path.as_posix()
         image = cv2.imread(str(record.image_path))
         segmentation = segmenter.segment(image)
@@ -100,15 +108,18 @@ def run_pipeline(options: PipelineOptions | None = None) -> Dict[str, object]:
         log_progress("Segmentation+Features", idx, total_records)
 
     feature_df = pd.DataFrame(feature_rows)
+    _check_cancel("Feature-Speicherung")
     feature_df.to_csv(config.REPORT_DIR / "feature_table.csv", index=False)
     feature_df.set_index("record_id", inplace=True)
     log_info("Segmentation and feature extraction completed.", progress=60.0)
 
     log_info("Classifying samples via rule-based model.", progress=70.0)
+    _check_cancel("Klassifikation")
     predictions = classifier.predict(feature_df[list(FEATURE_NAMES)])
     log_info("Classification completed.", progress=78.0)
 
     log_info("Evaluating predictions.", progress=82.0)
+    _check_cancel("Evaluierung")
     evaluation = evaluate(feature_df["target"].values, predictions, config.TARGET_CLASSES)
     (config.REPORT_DIR / "confusion_matrix.csv").write_text(evaluation.confusion.to_csv())
     (config.REPORT_DIR / "classification_report.txt").write_text(evaluation.report)
@@ -125,6 +136,7 @@ def run_pipeline(options: PipelineOptions | None = None) -> Dict[str, object]:
     process_records: List[ProcessRecord] = []
     metric_keys = ["area_ratio", "symmetry", "lightness_mean", "laplacian_std", "dark_fraction", "bright_fraction"]
     for idx, (record_id, name, target, prediction) in enumerate(zip(record_ids, filenames, ground_truth, predictions), start=1):
+        _check_cancel("Export")
         segmentation = segmentation_cache[record_id]
         symmetry = float(_scalar_df(feature_df, record_id, "symmetry"))
         inspection_paths = _save_inspection_assets(name, prediction, segmentation, original_paths[record_id])
@@ -150,6 +162,7 @@ def run_pipeline(options: PipelineOptions | None = None) -> Dict[str, object]:
         log_progress("Saving outputs", idx, total_files)
 
     log_info("Accuracy summary:", progress=99.5)
+    _check_cancel("Abschluss")
     for line in accuracy_lines:
         log_info(f"    {line}")
     prediction_validation = _validate_predictions(process_records)

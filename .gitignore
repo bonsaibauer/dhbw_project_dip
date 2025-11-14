@@ -22,3 +22,6 @@ output/
 # System junk
 Thumbs.db
 Desktop.ini
+
+# Local path overrides
+paths.json

@@ -19,14 +19,14 @@ from .steps import dataset_loader
 from .steps.background_segmentation import BackgroundSegmenter, SegmentationResult
 from .steps.classifier import RuleBasedClassifier
 from .steps.evaluator import evaluate
-from .steps.feature_extraction import FEATURE_NAMES, FeatureThresholds, extract_features
+from .steps.feature_extraction import FEATURE_NAMES, extract_features
 from .steps.result_writer import ResultWriter
 from .utils import log_info, log_progress
 
 
 @dataclass
 class PipelineOptions:
-    """User-adjustable knobs for segmentation and feature thresholds."""
+    """UI compatibility wrapper; values currently ignored by the pipeline."""
 
     blur_size: int = 5
     morph_kernel_size: int = 11
@@ -46,13 +46,6 @@ def run_pipeline(options: PipelineOptions | None = None, cancel_event: Event | N
     """Executes the full workflow and returns a dictionary with artefacts."""
 
     options = options or PipelineOptions()
-    feature_thresholds = FeatureThresholds(
-        dark=options.dark_threshold,
-        bright=options.bright_threshold,
-        yellow=options.yellow_threshold,
-        red=options.red_threshold,
-        laplacian_ksize=options.laplacian_ksize,
-    )
 
     def _check_cancel(stage: str) -> None:
         if cancel_event and cancel_event.is_set():
@@ -69,15 +62,7 @@ def run_pipeline(options: PipelineOptions | None = None, cancel_event: Event | N
         for record in records
     }
     log_info(f"Loaded {len(records)} annotated records.", progress=5.0)
-    segmenter = BackgroundSegmenter(
-        blur_size=options.blur_size,
-        morph_kernel_size=options.morph_kernel_size,
-        median_kernel_size=options.median_kernel_size,
-        invert_threshold=options.invert_threshold,
-        close_then_open=options.close_then_open,
-        morph_iterations=options.morph_iterations,
-        keep_largest_object=options.keep_largest_object,
-    )
+    segmenter = BackgroundSegmenter()
     writer = ResultWriter()
     classifier = RuleBasedClassifier()
 
@@ -95,7 +80,7 @@ def run_pipeline(options: PipelineOptions | None = None, cancel_event: Event | N
         record_id = record.relative_path.as_posix()
         image = cv2.imread(str(record.image_path))
         segmentation = segmenter.segment(image)
-        features = extract_features(image, segmentation, thresholds=feature_thresholds)
+        features = extract_features(image, segmentation)
         features["target"] = record.target_label
         features["filename"] = record.image_path.name
         features["record_id"] = record_id

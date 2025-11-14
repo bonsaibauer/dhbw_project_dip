@@ -18,6 +18,8 @@ class SegmentationResult:
     cropped_mask: np.ndarray
     bbox: Tuple[int, int, int, int]
     area_ratio: float
+    raw_mask: np.ndarray
+    blurred: np.ndarray
 
 
 class BackgroundSegmenter:
@@ -36,6 +38,7 @@ class BackgroundSegmenter:
         _, mask = cv2.threshold(lightness, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
         if mask.mean() > 200:
             mask = 255 - mask
+        raw_mask = mask.copy()
         mask = cv2.medianBlur(mask, 5)
         mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, self.kernel)
         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, self.kernel)
@@ -54,6 +57,8 @@ class BackgroundSegmenter:
             cropped_mask=cropped_mask,
             bbox=(x0, y0, x1, y1),
             area_ratio=area_ratio,
+            raw_mask=raw_mask,
+            blurred=blurred,
         )
 
     @staticmethod

@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal
+from typing import Callable, List, Literal
 
 Level = Literal["INFO", "WARN", "ERROR", "DEBUG"]
 BAR_WIDTH = 30
+_LOG_HISTORY: List[str] = []
+_LISTENERS: List[Callable[[str], None]] = []
 
 
 def _timestamp() -> str:
@@ -23,7 +25,14 @@ def _format_prefix(level: Level, progress: float | None) -> str:
 def log(level: Level, message: str, progress: float | None = None) -> None:
     """Print a single log line."""
 
-    print(f"{_format_prefix(level, progress)} {message}")
+    line = f"{_format_prefix(level, progress)} {message}"
+    print(line)
+    _LOG_HISTORY.append(line)
+    for listener in list(_LISTENERS):
+        try:
+            listener(line)
+        except Exception:
+            continue
 
 
 def log_info(message: str, progress: float | None = None) -> None:
@@ -52,3 +61,11 @@ def log_progress(stage: str, current: int, total: int) -> None:
     filled = int(BAR_WIDTH * percent / 100)
     bar = "#" * filled + "-" * (BAR_WIDTH - filled)
     log_info(f"{stage}: [{bar}] {current}/{total}", progress=percent)
+
+
+def get_log_history() -> List[str]:
+    return list(_LOG_HISTORY)
+
+
+def register_listener(callback: Callable[[str], None]) -> None:
+    _LISTENERS.append(callback)

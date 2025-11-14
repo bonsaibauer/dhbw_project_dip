@@ -15,6 +15,7 @@ MASK_DIR = DATA_DIR / "Masks"
 OUTPUT_ROOT = BASE_DIR / "output"
 RUN_IMAGE_DIR = OUTPUT_ROOT / "classified"
 REPORT_DIR = OUTPUT_ROOT / "reports"
+INSPECTION_DIR = OUTPUT_ROOT / "inspection"
 
 AGGREGATED_CLASS_MAPPING = {
     "normal": "Normal",

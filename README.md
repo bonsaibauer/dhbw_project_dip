@@ -76,16 +76,12 @@ git pull origin main
 3. Einen **Pull Request (PR)** für deinen Branch erstellen  
 4. Änderungen und Zweck kurz beschreiben
 
-## Lokale Ausführung
+## Lokale Ausfuehrung
 
-Das Repository enthält ein Windows-Skript, das eine virtuelle Umgebung erstellt, alle Abhängigkeiten installiert und anschließend die komplette Pipeline startet:
+Das Repository enthaelt ein Windows-Skript, das den mitgelieferten Python-Installer (`runtime\python-3.11.9-amd64.exe`) verwendet, um bei Bedarf eine komplette Python-Umgebung in `runtime\python311\` zu installieren (inkl. `tkinter`). Anschliessend installiert es alle Abhaengigkeiten und startet direkt das Tkinter-Dashboard; die Pipeline läuft dann im Hintergrund und alle Logs erscheinen im UI:
 
 ```powershell
 setup_and_run.bat
 ```
 
-Das Skript nutzt ausschließlich die mitgelieferte Datei `runtime\python-3.13.9-embed-amd64.zip`, entpackt bei Bedarf den Interpreter nach `runtime\python-3.13.9-embed-amd64\` und vermeidet damit jede Abhängigkeit von einer global installierten Python-Version.
-
-
-
-
+Alle Pakete werden lokal unter `runtime\python311\Lib\site-packages\` abgelegt, sodass keine globale Python-Installation notwendig ist. Unmittelbar nach dem Start erscheint das Tkinter-Dashboard; waehrend im Hintergrund die Pipeline ausgefuehrt wird, siehst du den Log-Live-Stream und den aktuellen Status. Sobald die Berechnungen fertig sind, fuellen sich die Klassen-Tabs automatisch und du kannst wie gewohnt Detailansichten (inkl. Masken- und Zwischenschritten) oeffnen.

@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
-from typing import Dict, List
+import shutil
+from pathlib import Path
+from typing import Dict, List, Any
 
 import cv2
 import pandas as pd
 
 from . import config
+from .models.records import ProcessRecord
 from .steps import dataset_loader
 from .steps.background_segmentation import BackgroundSegmenter, SegmentationResult
 from .steps.classifier import RuleBasedClassifier
@@ -20,8 +23,7 @@ from .utils import log_info, log_progress
 def run_pipeline() -> Dict[str, object]:
     """Executes the full workflow and returns a dictionary with artefacts."""
 
-    config.OUTPUT_ROOT.mkdir(exist_ok=True)
-    config.REPORT_DIR.mkdir(parents=True, exist_ok=True)
+    _prepare_output_dirs()
 
     log_info("Starting fryum quality pipeline.", progress=0.0)
     records = dataset_loader.load_dataset()
@@ -34,6 +36,7 @@ def run_pipeline() -> Dict[str, object]:
     segmentation_cache: Dict[str, SegmentationResult] = {}
     filenames: List[str] = []
     ground_truth: List[str] = []
+    original_paths: Dict[str, Path] = {}
 
     log_info("Running segmentation and feature extraction.", progress=10.0)
     total_records = max(1, len(records))
@@ -47,10 +50,12 @@ def run_pipeline() -> Dict[str, object]:
         segmentation_cache[record.image_path.name] = segmentation
         filenames.append(record.image_path.name)
         ground_truth.append(record.target_label)
+        original_paths[record.image_path.name] = record.image_path
         log_progress("Segmentation+Features", idx, total_records)
 
     feature_df = pd.DataFrame(feature_rows)
     feature_df.to_csv(config.REPORT_DIR / "feature_table.csv", index=False)
+    feature_df.set_index("filename", inplace=True)
     log_info("Segmentation and feature extraction completed.", progress=60.0)
 
     log_info("Classifying samples via rule-based model.", progress=70.0)
@@ -71,11 +76,29 @@ def run_pipeline() -> Dict[str, object]:
     log_info("Saving classified crops.", progress=92.0)
     total_files = max(1, len(filenames))
     saved_items = []
+    process_records: List[ProcessRecord] = []
+    metric_keys = ["area_ratio", "symmetry", "lightness_mean", "laplacian_std", "dark_fraction", "bright_fraction"]
     for idx, (name, target, prediction) in enumerate(zip(filenames, ground_truth, predictions), start=1):
         segmentation = segmentation_cache[name]
-        symmetry = feature_df.loc[feature_df["filename"] == name, "symmetry"].iloc[0]
+        symmetry = float(_scalar_df(feature_df, name, "symmetry"))
+        inspection_paths = _save_inspection_assets(name, prediction, segmentation, original_paths[name])
         saved = writer.save(name, prediction, target, segmentation, symmetry)
+        inspection_paths["classified"] = str(saved.image_path)
+        metrics = {key: float(_scalar_df(feature_df, name, key)) for key in metric_keys}
+        process_steps = _build_process_steps(segmentation, prediction, target, str(saved.image_path))
         saved_items.append(saved)
+        process_records.append(
+            ProcessRecord(
+                filename=name,
+                prediction=prediction,
+                target=target,
+                original_path=str(original_paths[name]),
+                classified_path=str(saved.image_path),
+                inspection_paths=inspection_paths,
+                process_steps=process_steps,
+                metrics=metrics,
+            )
+        )
         log_progress("Saving outputs", idx, total_files)
 
     log_info("Accuracy summary:", progress=99.5)
@@ -83,11 +106,98 @@ def run_pipeline() -> Dict[str, object]:
         log_info(f"    {line}")
     log_info("Pipeline finished successfully.", progress=100.0)
     return {
-        "features": feature_df,
+        "features": feature_df.reset_index(),
         "predictions": predictions,
         "evaluation": evaluation,
         "saved_items": saved_items,
+        "records": process_records,
     }
+
+
+def _prepare_output_dirs() -> None:
+    config.OUTPUT_ROOT.mkdir(exist_ok=True)
+    config.REPORT_DIR.mkdir(parents=True, exist_ok=True)
+    if config.INSPECTION_DIR.exists():
+        shutil.rmtree(config.INSPECTION_DIR)
+    config.INSPECTION_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _save_inspection_assets(
+    filename: str,
+    prediction: str,
+    segmentation: SegmentationResult,
+    original_path: Path,
+) -> Dict[str, str]:
+    dest = config.INSPECTION_DIR / prediction / Path(filename).stem
+    if dest.exists():
+        shutil.rmtree(dest)
+    dest.mkdir(parents=True, exist_ok=True)
+    original_copy = dest / "original.jpg"
+    shutil.copy2(original_path, original_copy)
+    blurred_path = dest / "blurred.jpg"
+    cv2.imwrite(str(blurred_path), segmentation.blurred)
+    raw_mask_path = dest / "raw_mask.png"
+    cv2.imwrite(str(raw_mask_path), segmentation.raw_mask)
+    mask_path = dest / "mask.png"
+    cv2.imwrite(str(mask_path), segmentation.mask)
+    cropped_path = dest / "cropped.png"
+    cv2.imwrite(str(cropped_path), segmentation.cropped_image)
+    overlay_path = dest / "mask_overlay.png"
+    original_img = cv2.imread(str(original_path))
+    if original_img is not None and original_img.shape[:2] == segmentation.mask.shape:
+        mask_color = cv2.cvtColor(segmentation.mask, cv2.COLOR_GRAY2BGR)
+        overlay = cv2.addWeighted(original_img, 0.7, mask_color, 0.3, 0)
+        cv2.imwrite(str(overlay_path), overlay)
+    else:
+        overlay_path = str(mask_path)
+    return {
+        "folder": str(dest),
+        "original": str(original_copy),
+        "blurred": str(blurred_path),
+        "raw_mask": str(raw_mask_path),
+        "mask": str(mask_path),
+        "cropped": str(cropped_path),
+        "mask_overlay": str(overlay_path),
+    }
+
+
+def _build_process_steps(
+    segmentation: SegmentationResult,
+    prediction: str,
+    target: str,
+    output_path: str,
+) -> List[Dict[str, str]]:
+    return [
+        {
+            "title": "Hintergrundsegmentierung",
+            "status": "abgeschlossen",
+            "details": f"Flaechenanteil {segmentation.area_ratio * 100:.2f} %",
+        },
+        {
+            "title": "Feature-Extraktion",
+            "status": "abgeschlossen",
+            "details": f"{len(FEATURE_NAMES)} Merkmale berechnet",
+        },
+        {
+            "title": "Klassifikation",
+            "status": "abgeschlossen",
+            "details": f"Ergebnis: {prediction} (Soll: {target})",
+        },
+        {
+            "title": "Export",
+            "status": "abgeschlossen",
+            "details": output_path,
+        },
+    ]
+
+
+def _scalar_df(df: pd.DataFrame, index: str, column: str) -> Any:
+    """Return a scalar cell value even if duplicated index produces a Series."""
+
+    value = df.loc[index, column]
+    if isinstance(value, pd.Series):
+        return value.iloc[0]
+    return value
 
 
 if __name__ == "__main__":

@@ -7,9 +7,10 @@ __pycache__/
 venv/
 env/
 
-# Embedded runtime extraction
-runtime/python-*/
-runtime/get-pip.py
+# Embedded runtime installation
+runtime/python312*/
+runtime/python313*/
+runtime/python314/
 
 # IDE tooling
 .idea/
@@ -18,8 +19,6 @@ runtime/get-pip.py
 # Logs / reports
 *.log
 output/
-runtime/python-3.13.9-embed-amd64/Lib/site-packages/
-runtime/python-3.13.9-embed-amd64/Scripts/
 
 # System junk
 Thumbs.db

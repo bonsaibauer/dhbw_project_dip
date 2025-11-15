@@ -81,7 +81,7 @@ Die Sortierergebnisse werden mit `data/image_anno.csv` verglichen. Ein Bericht z
   1. Zählt Treffer und Fehler pro Klasse.
   2. Gibt zwei Tabellen aus – **Gesamtstatistik** (Bewertet, Treffer, Genauigkeit, Falsch zugeordnet, ggf. „Ohne passende Annotation“) und **Klassenübersicht** (Erwartet, Treffer, Genauigkeit %).
   3. Zeigt die aktuelle Priorisierungskette (z.B. `Bruch > Farbfehler > Rest > Normal`), damit klar ist, warum Mehrfachlabels so aufgelöst wurden.
-  4. Kopiert jede Fehlzuordnung nach `output/Falsch` und ergänzt den Dateinamen mit `gt-<korrekt>` und `pred-<erkannt>`.
+  4. Kopiert jede Fehlzuordnung nach `output/sorted/Falsch` und ergänzt den Dateinamen mit `gt-<korrekt>` und `pred-<erkannt>`.
 
 ## Hauptprogramm in Kurzform
 

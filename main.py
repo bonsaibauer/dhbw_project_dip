@@ -11,7 +11,7 @@ RAW_DATA_DIR = os.path.join("data", "Images")
 OUTPUT_DIR = "output"
 PROCESSED_DATA_DIR = os.path.join(OUTPUT_DIR, "processed")
 SORTED_DATA_DIR = os.path.join(OUTPUT_DIR, "sorted")
-FALSCH_DIR = os.path.join(OUTPUT_DIR, "Falsch")
+FALSCH_DIR = os.path.join(SORTED_DATA_DIR, "Falsch")
 ANNOTATION_FILE = os.path.join("data", "image_anno.csv")
 VERBOSE_SORT_OUTPUT = True
 

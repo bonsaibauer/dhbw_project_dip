@@ -13,6 +13,7 @@ PROCESSED_DATA_DIR = os.path.join(OUTPUT_DIR, "processed")
 SORTED_DATA_DIR = os.path.join(OUTPUT_DIR, "sorted")
 FALSCH_DIR = os.path.join(OUTPUT_DIR, "Falsch")
 ANNOTATION_FILE = os.path.join("data", "image_anno.csv")
+VERBOSE_SORT_OUTPUT = True
 
 LOWER_GREEN = np.array([35, 40, 30])
 UPPER_GREEN = np.array([85, 255, 255])
@@ -56,6 +57,13 @@ LABEL_CLASS_MAP = {
     "burnt": "Farbfehler",
     "small scratches": "Rest",
     "other": "Rest",
+}
+
+CLASS_DESCRIPTIONS = {
+    "Normal": "7 Löcher, symmetrisch und ohne sichtbare Flecken.",
+    "Bruch": "Lochanzahl passt nicht -> Bruch oder Fragment.",
+    "Farbfehler": "Flecken/Schatten erkannt, obwohl Geometrie ok.",
+    "Rest": "Kein Objekt oder unklare Form/Fall außerhalb der Regeln.",
 }
 
 # ==========================================
@@ -126,32 +134,38 @@ def prepare_dataset(source_dir, target_dir):
         shutil.rmtree(target_dir)
     os.makedirs(target_dir)
 
-    print(f"Starte Vorverarbeitung von {source_dir} nach {target_dir}...")
+    image_files = collect_image_files(source_dir)
+    total_files = len(image_files)
+    if total_files == 0:
+        print(f"Keine Bilder in '{source_dir}' gefunden.")
+        return
+
+    print(f"Segmentierung ({total_files} Bilder):")
+    class_dirs = {}
     
-    for root, dirs, files in os.walk(source_dir):
-        files = [f for f in files if f.lower().endswith(('.jpg', '.jpeg', '.png'))]
+    for idx, (root, name) in enumerate(image_files, 1):
+        full_path = os.path.join(root, name)
+        image = cv2.imread(full_path)
         
-        if not files: continue
-        
-        # Struktur beibehalten (Unterordner)
-        class_name = os.path.basename(root)
-        save_path = os.path.join(target_dir, class_name)
-        os.makedirs(save_path, exist_ok=True)
-        
-        for name in files:
-            full_path = os.path.join(root, name)
-            image = cv2.imread(full_path)
+        if image is not None:
+            res = []
+            has_result = run_preprocessing(image, res)
             
-            if image is not None:
-                res = []
-                has_result = run_preprocessing(image, res)
-                
-                if has_result:
-                    for item in res:
-                        if item["name"] == "Result":
-                            cv2.imwrite(os.path.join(save_path, name), item["data"])
-                            
-    print("Vorverarbeitung abgeschlossen.")
+            if has_result:
+                class_name = os.path.basename(root)
+                if class_name not in class_dirs:
+                    save_path = os.path.join(target_dir, class_name)
+                    os.makedirs(save_path, exist_ok=True)
+                    class_dirs[class_name] = save_path
+                save_path = class_dirs[class_name]
+
+                for item in res:
+                    if item["name"] == "Result":
+                        cv2.imwrite(os.path.join(save_path, name), item["data"])
+
+        print_progress("  Segmentierung", idx, total_files)
+
+    print("\nSegmentierung abgeschlossen.")
 
 # ==========================================
 # TEIL 2: QUALITÄTSKONTROLLE & SORTIERUNG
@@ -274,6 +288,23 @@ def print_table(headers, rows, indent="  "):
     for row in rows:
         print(indent + " | ".join(row[i].ljust(widths[i]) for i in range(len(row))))
     print()
+
+def print_progress(prefix, current, total, bar_length=30):
+    if total <= 0:
+        return
+    ratio = min(max(current / total, 0), 1)
+    filled = int(bar_length * ratio)
+    bar = "#" * filled + "-" * (bar_length - filled)
+    percent = ratio * 100
+    print(f"\r{prefix} [{bar}] {percent:5.1f}% ({current}/{total})", end="", flush=True)
+
+def collect_image_files(source_dir):
+    image_files = []
+    for root, dirs, files in os.walk(source_dir):
+        for name in files:
+            if name.lower().endswith(('.jpg', '.jpeg', '.png')):
+                image_files.append((root, name))
+    return image_files
 
 def describe_priority_chain():
     """Ermittelt die Priorisierungsreihenfolge der Zielklassen."""
@@ -416,6 +447,7 @@ def sort_dataset_manual_rules(source_data_dir, sorted_data_dir):
         os.makedirs(os.path.join(sorted_data_dir, cls), exist_ok=True)
 
     stats_counter = {k: 0 for k in CLASSES}
+    reason_counter = {k: {} for k in CLASSES}
     predictions = []
 
     for root, dirs, files in os.walk(source_data_dir):
@@ -481,7 +513,10 @@ def sort_dataset_manual_rules(source_data_dir, sorted_data_dir):
             shutil.copy(img_path, dest_path)
             
             stats_counter[target_class] += 1
-            print(f"[{target_class}] {new_filename} -> {reason}")
+            reason_counter[target_class][reason] = reason_counter[target_class].get(reason, 0) + 1
+            if VERBOSE_SORT_OUTPUT:
+                rel_dest = os.path.relpath(dest_path, sorted_data_dir).replace("\\", "/")
+                print(f"[{target_class}] {new_filename} | Grund: {reason} | Ziel: {rel_dest}")
             
             rel_path = normalize_relative_path(os.path.relpath(img_path, source_data_dir))
             predictions.append({
@@ -493,7 +528,21 @@ def sort_dataset_manual_rules(source_data_dir, sorted_data_dir):
                 "original_name": file,
             })
 
-    print(f"\nFertig: {stats_counter}")
+    total_sorted = sum(stats_counter.values())
+    print("\nSortierung abgeschlossen:\n")
+    headers = ["Klasse", "Anzahl", "Anteil %", "Beschreibung", "Häufigster Grund"]
+    rows = []
+    for cls in CLASSES:
+        amount = stats_counter[cls]
+        share = (amount / total_sorted * 100) if total_sorted else 0
+        desc = CLASS_DESCRIPTIONS.get(cls, "")
+        reason_text = "-"
+        if reason_counter[cls]:
+            top_reason, top_count = max(reason_counter[cls].items(), key=lambda kv: kv[1])
+            reason_text = f"{top_reason} ({top_count}x)"
+        rows.append([cls, str(amount), f"{share:.1f}", desc, reason_text])
+    print_table(headers, rows)
+
     return predictions
 
 # ==========================================

@@ -26,6 +26,8 @@ EPSILON_FACTOR = 0.04
 MIN_HOLE_AREA = 100
 MIN_WINDOW_AREA = 500
 MAX_CENTER_HOLE_AREA = 3000
+FRAGMENT_AREA_MIN = 8000
+REST_WINDOW_AREA_THRESHOLD = 3600
 
 EROSION_KERNEL_SIZE = (5, 5)
 EROSION_ITERATIONS = 5
@@ -180,6 +182,7 @@ def analyze_geometry_features(contours, hierarchy):
     stats = {
         "has_object": False, "area": 0, "solidity": 0,
         "num_windows": 0, "has_center_hole": False, "main_contour": None,
+        "fragment_count": 0,
         "window_areas": []  # <--- NEU: Liste für die Flächengrößen
     }
     
@@ -199,7 +202,13 @@ def analyze_geometry_features(contours, hierarchy):
     if hierarchy is not None:
         for i, cnt in enumerate(contours):
             parent_idx = hierarchy[0][i][3]
-            
+            cnt_area = cv2.contourArea(cnt)
+
+            # Weitere äußere Konturen deuten auf zusammengeklebte Snacks hin
+            if parent_idx == -1 and i != main_cnt_idx and cnt_area > FRAGMENT_AREA_MIN:
+                stats["fragment_count"] += 1
+                continue
+
             # Nur direkte Kinder des Hauptobjekts (Löcher)
             if parent_idx == main_cnt_idx:
                 hole_area = cv2.contourArea(cnt)
@@ -478,34 +487,43 @@ def sort_dataset_manual_rules(source_data_dir, sorted_data_dir):
                 target_class = "Rest"
                 reason = f"Zu viele Fragmente: {total_holes}"
             else:
-                # --- Geometrie ist OK (7 Löcher), jetzt Farbcheck ---
-                col_res = detect_defects(image, spot_threshold=DEFECT_SPOT_THRESHOLD)
-                
-                if col_res["is_defective"]:
-                    target_class = "Farbfehler"
-                    reason = f"Fleck: {col_res['spot_area']}px"
+                if geo["fragment_count"] > 0:
+                    target_class = "Rest"
+                    reason = f"Fragmente: {geo['fragment_count']}"
                 else:
-                    # --- ALLES OK -> SYMMETRIE BERECHNEN ---
-                    # Wir berechnen, wie stark die Fensterflächen voneinander abweichen.
+                    # --- Geometrie ist OK (7 Löcher), jetzt Farbcheck ---
                     areas = geo["window_areas"]
-                    
-                    if len(areas) > 0:
-                        mean_a = np.mean(areas)
-                        std_a = np.std(areas) # Standardabweichung
-                        
-                        # Variationskoeffizient (Wie viel % weicht ein Fenster vom Durschnitt ab?)
-                        # Kleiner ist besser.
-                        cv = std_a / mean_a if mean_a > 0 else 0
-                        
-                        # Score invertieren: 100 = 0% Abweichung, 0 = 30%+ Abweichung
-                        # Faktor 3.0 ist ein Skalierungsfaktor für Empfindlichkeit
-                        symmetry_score = max(0, min(100, int(100 * (1 - (cv * SYMMETRY_SENSITIVITY)))))
-                    else:
-                        symmetry_score = 0
+                    avg_window = np.mean(areas) if areas else 0
 
-                    # Prefix erstellen: z.B. "098_" für sehr symmetrisch
-                    file_prefix = f"{symmetry_score:03d}_"
-                    reason = f"Symmetrie: {symmetry_score}/100"
+                    if areas and avg_window < REST_WINDOW_AREA_THRESHOLD:
+                        target_class = "Rest"
+                        reason = f"Fensterfläche: {avg_window:.0f}"
+                    else:
+                        col_res = detect_defects(image, spot_threshold=DEFECT_SPOT_THRESHOLD)
+                    
+                        if col_res["is_defective"]:
+                            target_class = "Farbfehler"
+                            reason = f"Fleck: {col_res['spot_area']}px"
+                        else:
+                            # --- ALLES OK -> SYMMETRIE BERECHNEN ---
+                            # Wir berechnen, wie stark die Fensterflächen voneinander abweichen.
+                            if len(areas) > 0:
+                                mean_a = np.mean(areas)
+                                std_a = np.std(areas) # Standardabweichung
+                                
+                                # Variationskoeffizient (Wie viel % weicht ein Fenster vom Durschnitt ab?)
+                                # Kleiner ist besser.
+                                cv = std_a / mean_a if mean_a > 0 else 0
+                                
+                                # Score invertieren: 100 = 0% Abweichung, 0 = 30%+ Abweichung
+                                # Faktor 3.0 ist ein Skalierungsfaktor für Empfindlichkeit
+                                symmetry_score = max(0, min(100, int(100 * (1 - (cv * SYMMETRY_SENSITIVITY)))))
+                            else:
+                                symmetry_score = 0
+
+                            # Prefix erstellen: z.B. "098_" für sehr symmetrisch
+                            file_prefix = f"{symmetry_score:03d}_"
+                            reason = f"Symmetrie: {symmetry_score}/100"
 
             # Datei kopieren (mit Prefix nur bei Normal)
             new_filename = f"{file_prefix}{file}"

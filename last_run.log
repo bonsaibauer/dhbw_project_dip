@@ -649,7 +649,7 @@ Starte Sortierung und Symmetrie-Berechnung...
 [Bruch] 043.JPG | Grund: Zu wenig L÷cher: 5 | Ziel: Bruch/043.JPG
 [Rest] 044.JPG | Grund: Zu viele Fragmente: 9 | Ziel: Rest/044.JPG
 [Bruch] 045.JPG | Grund: Zu wenig L÷cher: 4 | Ziel: Bruch/045.JPG
-[Farbfehler] 046.JPG | Grund: Fleck: 85px | Ziel: Farbfehler/046.JPG
+[Rest] 046.JPG | Grund: Fensterflõche: 3435 | Ziel: Rest/046.JPG
 [Bruch] 047.JPG | Grund: Zu wenig L÷cher: 6 | Ziel: Bruch/047.JPG
 [Rest] 048.JPG | Grund: Zu viele Fragmente: 8 | Ziel: Rest/048.JPG
 [Normal] 067_049.JPG | Grund: Symmetrie: 67/100 | Ziel: Normal/067_049.JPG
@@ -657,10 +657,10 @@ Starte Sortierung und Symmetrie-Berechnung...
 [Bruch] 051.JPG | Grund: Zu wenig L÷cher: 5 | Ziel: Bruch/051.JPG
 [Bruch] 052.JPG | Grund: Zu wenig L÷cher: 4 | Ziel: Bruch/052.JPG
 [Bruch] 053.JPG | Grund: Zu wenig L÷cher: 5 | Ziel: Bruch/053.JPG
-[Normal] 000_054.JPG | Grund: Symmetrie: 0/100 | Ziel: Normal/000_054.JPG
-[Normal] 000_055.JPG | Grund: Symmetrie: 0/100 | Ziel: Normal/000_055.JPG
+[Rest] 054.JPG | Grund: Fensterflõche: 3208 | Ziel: Rest/054.JPG
+[Rest] 055.JPG | Grund: Fensterflõche: 3433 | Ziel: Rest/055.JPG
 [Bruch] 056.JPG | Grund: Zu wenig L÷cher: 6 | Ziel: Bruch/056.JPG
-[Normal] 000_057.JPG | Grund: Symmetrie: 0/100 | Ziel: Normal/000_057.JPG
+[Rest] 057.JPG | Grund: Fensterflõche: 3598 | Ziel: Rest/057.JPG
 [Bruch] 058.JPG | Grund: Zu wenig L÷cher: 5 | Ziel: Bruch/058.JPG
 [Rest] 059.JPG | Grund: Zu viele Fragmente: 10 | Ziel: Rest/059.JPG
 [Normal] 005_060.JPG | Grund: Symmetrie: 5/100 | Ziel: Normal/005_060.JPG
@@ -1208,10 +1208,10 @@ Sortierung abgeschlossen:
 
   Klasse     | Anzahl | Anteil % | Beschreibung                                             | Hõufigster Grund          
   -----------+--------+----------+----------------------------------------------------------+---------------------------
-  Normal     | 503    | 83.8     | 7 L÷cher, symmetrisch und ohne sichtbare Flecken.        | Symmetrie: 0/100 (28x)    
+  Normal     | 500    | 83.3     | 7 L÷cher, symmetrisch und ohne sichtbare Flecken.        | Symmetrie: 0/100 (25x)    
   Bruch      | 27     | 4.5      | Lochanzahl passt nicht -> Bruch oder Fragment.           | Zu wenig L÷cher: 5 (13x)  
-  Farbfehler | 66     | 11.0     | Flecken/Schatten erkannt, obwohl Geometrie ok.           | Fleck: 76px (5x)          
-  Rest       | 4      | 0.7      | Kein Objekt oder unklare Form/Fall au▀erhalb der Regeln. | Zu viele Fragmente: 9 (2x)
+  Farbfehler | 65     | 10.8     | Flecken/Schatten erkannt, obwohl Geometrie ok.           | Fleck: 76px (5x)          
+  Rest       | 8      | 1.3      | Kein Objekt oder unklare Form/Fall au▀erhalb der Regeln. | Zu viele Fragmente: 9 (2x)
 
 
 Validierung (image_anno.csv):
@@ -1220,9 +1220,9 @@ Validierung (image_anno.csv):
   Statistik         | Wert 
   ------------------+------
   Bewertet          | 600  
-  Treffer           | 515  
-  Genauigkeit %     | 85.83
-  Falsch zugeordnet | 85   
+  Treffer           | 519  
+  Genauigkeit %     | 86.50
+  Falsch zugeordnet | 81   
 
 Priorisierung (h÷chste Prioritõt links): Normal > Farbfehler > Bruch > Rest
 
@@ -1232,5 +1232,5 @@ Priorisierung (h÷chste Prioritõt links): Normal > Farbfehler > Bruch > Rest
   Bruch      | 29       | 16      | 55.17        
   Farbfehler | 45       | 30      | 66.67        
   Normal     | 500      | 465     | 93.00        
-  Rest       | 26       | 4       | 15.38        
+  Rest       | 26       | 8       | 30.77        
 

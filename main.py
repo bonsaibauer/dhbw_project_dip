@@ -36,15 +36,15 @@ DEFECT_SPOT_THRESHOLD = 15
 SYMMETRY_SENSITIVITY = 3.0
 
 LABEL_PRIORITIES = {
-    "middle breakage": 0,
-    "corner or edge breakage": 0,
-    "fryum stuck together": 1,
-    "different colour spot": 2,
-    "similar colour spot": 2,
-    "burnt": 2,
+    "normal": 0,  # Normalzustand hat höchste Priorität
+    "different colour spot": 1,
+    "similar colour spot": 1,
+    "burnt": 1,
+    "middle breakage": 2,
+    "corner or edge breakage": 2,
+    "fryum stuck together": 3,
     "small scratches": 3,
-    "other": 4,
-    "normal": 5,
+    "other": 3,
 }
 
 LABEL_CLASS_MAP = {

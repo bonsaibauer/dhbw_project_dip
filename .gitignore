@@ -1,29 +1,20 @@
-# Byte-compiled / cache
-__pycache__/
-*.py[cod]
-
-# Virtual environments
 .venv/
-venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
 env/
+venv/
+ENV/
+build/
+dist/
+*.egg-info/
 
-# Embedded runtime installation
-runtime/python311/
-data/
-
-# IDE tooling
-.idea/
-.vscode/
-
-# Generated pipeline output
+# Laufzeit- und Ergebnisdaten
+#data/
 output/
 
-# Logs / reports
-*.log
-
-# System junk
+# Betriebssystemspezifisches
+.DS_Store
 Thumbs.db
-Desktop.ini
-
-# Local path overrides
-paths.json

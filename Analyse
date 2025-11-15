@@ -1,0 +1,75 @@
+import pandas as pd
+from pathlib import Path
+import numpy as np
+
+# --- Konfiguration ---
+BASE_DIR = Path(__file__).resolve().parent
+OUTPUT_ROOT = BASE_DIR / "output"
+ANALYSIS_FILE = OUTPUT_ROOT / "feature_analysis.csv"
+
+# Die Klassen und Merkmale, die uns interessieren
+CLASSES = ['Normal', 'Bruch', 'Farbfehler', 'Rest']
+FEATURES_TO_ANALYZE = ['solidity', 'lightness_mean', 'a_mean', 'b_mean', 'symmetry']
+
+def print_full_stats(df: pd.DataFrame):
+    """
+    Druckt eine kompakte Vergleichstabelle für alle Klassen
+    und alle relevanten Merkmale.
+    """
+    print("="*60)
+    print("LAUFE UMFASSENDE MERKMALS-ANALYSE (v2)")
+    print("="*60)
+    
+    # Lade die CSV, die unser Hauptskript erstellt hat
+    if not ANALYSIS_FILE.exists():
+        print(f"FEHLER: Datei nicht gefunden: {ANALYSIS_FILE}")
+        print("Bitte stelle sicher, dass 'feature_analysis.csv' im 'output'-Ordner liegt.")
+        return
+    
+    try:
+        df = pd.read_csv(ANALYSIS_FILE, sep=";")
+        print(f"Erfolgreich {ANALYSIS_FILE} geladen.")
+        
+        for feature in FEATURES_TO_ANALYZE:
+            print(f"\n\n--- Feature: '{feature}' ---")
+            
+            # Verwende describe() für eine kompakte Statistik-Tabelle
+            # und filtere sofort nach unseren Zielklassen
+            stats = df[df['TRUE_LABEL'].isin(CLASSES)].groupby('TRUE_LABEL')[feature].describe()
+            
+            # Formatiere die Ausgabe, um sie lesbarer zu machen
+            # 50% = Median
+            stats_formatted = stats[['min', 'max', 'mean', '50%']] 
+            stats_formatted.columns = ['MIN', 'MAX', 'MITTELWERT', 'MEDIAN']
+            
+            # Zeige die Tabelle für dieses Merkmal
+            print(stats_formatted.to_string())
+
+    except Exception as e:
+        print(f"Ein unerwarteter Fehler ist aufgetreten: {e}")
+
+# --- Haupt-Analyse-Logik ---
+def run_analysis_v2():
+    print("Starte Merkmals-Analyse-Skript (v2)...")
+    
+    # Lade die Daten und drucke die Statistiken
+    try:
+        df = pd.read_csv(ANALYSIS_FILE, sep=";")
+        print(f"Erfolgreich {ANALYSIS_FILE} geladen.")
+        
+        print_full_stats(df)
+
+        print("\n\nAnalyse (v2) abgeschlossen.")
+        print("Diese Tabelle ist der Schlüssel. Bitte kopiere sie zu deinem 'Kollegen'.")
+
+    except FileNotFoundError:
+        print(f"FEHLER: Datei nicht gefunden: {ANALYSIS_FILE}")
+        print("Bitte stelle sicher, dass 'feature_analysis.csv' im 'output'-Ordner liegt.")
+        print("Führe zuerst 'PhillipInOneCode.py' aus.")
+    except Exception as e:
+        print(f"Ein unerwarteter Fehler ist aufgetreten: {e}")
+        print(f"Stelle sicher, dass pandas installiert ist: pip install pandas")
+
+# --- Skript starten ---
+if __name__ == "__main__":
+    run_analysis_v2()

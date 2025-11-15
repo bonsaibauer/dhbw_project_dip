@@ -2,6 +2,61 @@ import shutil
 import cv2
 import numpy as np
 import os
+import csv
+
+# ==========================================
+# ANPASSBARE PARAMETER & VERZEICHNISSE
+# ==========================================
+RAW_DATA_DIR = os.path.join("data", "Images")
+OUTPUT_DIR = "output"
+PROCESSED_DATA_DIR = os.path.join(OUTPUT_DIR, "processed")
+SORTED_DATA_DIR = os.path.join(OUTPUT_DIR, "sorted")
+FALSCH_DIR = os.path.join(OUTPUT_DIR, "Falsch")
+ANNOTATION_FILE = os.path.join("data", "image_anno.csv")
+
+LOWER_GREEN = np.array([35, 40, 30])
+UPPER_GREEN = np.array([85, 255, 255])
+CONTOUR_AREA_MIN = 30000
+WARP_SIZE = (600, 400)
+TARGET_WIDTH = 400
+TARGET_HEIGHT = 400
+
+EPSILON_FACTOR = 0.04
+MIN_HOLE_AREA = 100
+MIN_WINDOW_AREA = 500
+MAX_CENTER_HOLE_AREA = 3000
+
+EROSION_KERNEL_SIZE = (5, 5)
+EROSION_ITERATIONS = 5
+BLACKHAT_KERNEL_SIZE = (15, 15)
+BLACKHAT_CONTRAST_THRESHOLD = 30
+NOISE_KERNEL_SIZE = (2, 2)
+DEFECT_SPOT_THRESHOLD = 15
+SYMMETRY_SENSITIVITY = 3.0
+
+LABEL_PRIORITIES = {
+    "middle breakage": 0,
+    "corner or edge breakage": 0,
+    "fryum stuck together": 1,
+    "different colour spot": 2,
+    "similar colour spot": 2,
+    "burnt": 2,
+    "small scratches": 3,
+    "other": 4,
+    "normal": 5,
+}
+
+LABEL_CLASS_MAP = {
+    "normal": "Normal",
+    "middle breakage": "Bruch",
+    "corner or edge breakage": "Bruch",
+    "fryum stuck together": "Rest",
+    "different colour spot": "Farbfehler",
+    "similar colour spot": "Farbfehler",
+    "burnt": "Farbfehler",
+    "small scratches": "Rest",
+    "other": "Rest",
+}
 
 # ==========================================
 # TEIL 1: BILDVORVERARBEITUNG (SEGMENTIERUNG)
@@ -15,10 +70,7 @@ def run_preprocessing(image, result):
     hsv = cv2.cvtColor(image_copy, cv2.COLOR_BGR2HSV)
     
     # Grün-Definition für Hintergrund (Anpassbar je nach Licht)
-    lower_green = np.array([35, 40, 30])
-    upper_green = np.array([85, 255, 255])
-    
-    mask_green = cv2.inRange(hsv, lower_green, upper_green)
+    mask_green = cv2.inRange(hsv, LOWER_GREEN, UPPER_GREEN)
     mask_object = cv2.bitwise_not(mask_green) # Objekt ist Nicht-Grün
     
     image_work = cv2.bitwise_and(image_work, image_work, mask=mask_object)
@@ -30,7 +82,7 @@ def run_preprocessing(image, result):
     processed = False
     for ele in contours:
         # Nur große Objekte beachten (Filterung von Rauschen)
-        if cv2.contourArea(ele) > 30000:
+        if cv2.contourArea(ele) > CONTOUR_AREA_MIN:
             rect = cv2.minAreaRect(ele)
             
             # Querformat erzwingen (Winkel und Dimensionen tauschen)
@@ -49,7 +101,7 @@ def run_preprocessing(image, result):
             image_work[mask == 0] = (0, 0, 0)
 
             # Perspektivische Transformation (Warp)
-            size = (600, 400)
+            size = WARP_SIZE
             # Ziel-Koordinaten für den Warp
             dst_pts = np.array([[0, size[1]-1], [0, 0], [size[0]-1, 0], [size[0]-1, size[1]-1]], dtype="float32")
             
@@ -59,11 +111,8 @@ def run_preprocessing(image, result):
             
             M = cv2.getPerspectiveTransform(boxf.astype("float32"), dst_pts)
             
-            target_width = 400
-            target_height = 400
-            
-            warped = cv2.warpPerspective(image_work, M, (size[0], size[1]), cv2.INTER_CUBIC)
-            warped = cv2.resize(warped, (target_width, target_height), interpolation=cv2.INTER_CUBIC)
+            warped = cv2.warpPerspective(image_work, M, size, cv2.INTER_CUBIC)
+            warped = cv2.resize(warped, (TARGET_WIDTH, TARGET_HEIGHT), interpolation=cv2.INTER_CUBIC)
 
             result.append({"name": "Result", "data": warped})
             processed = True
@@ -132,7 +181,7 @@ def analyze_geometry_features(contours, hierarchy):
     stats["main_contour"] = main_cnt
 
     # Löcher analysieren
-    epsilon_factor = 0.04
+    epsilon_factor = EPSILON_FACTOR
     if hierarchy is not None:
         for i, cnt in enumerate(contours):
             parent_idx = hierarchy[0][i][3]
@@ -140,22 +189,22 @@ def analyze_geometry_features(contours, hierarchy):
             # Nur direkte Kinder des Hauptobjekts (Löcher)
             if parent_idx == main_cnt_idx:
                 hole_area = cv2.contourArea(cnt)
-                if hole_area < 100: continue 
+                if hole_area < MIN_HOLE_AREA: continue 
 
                 peri = cv2.arcLength(cnt, True)
                 approx = cv2.approxPolyDP(cnt, epsilon_factor * peri, True)
                 corners = len(approx)
 
                 # Unterscheidung Fenster vs. Mittelloch
-                if 3 <= corners <= 5 and hole_area > 500:
+                if 3 <= corners <= 5 and hole_area > MIN_WINDOW_AREA:
                     stats["num_windows"] += 1
                     stats["window_areas"].append(hole_area) # <--- NEU: Fläche speichern
-                elif corners > 5 and hole_area < 3000:
+                elif corners > 5 and hole_area < MAX_CENTER_HOLE_AREA:
                     stats["has_center_hole"] = True
                     
     return stats
 
-def detect_defects(image, spot_threshold=15, debug=False):
+def detect_defects(image, spot_threshold=DEFECT_SPOT_THRESHOLD, debug=False):
     """
     Nutzt Morphological Black-Hat, um dunkle Flecken unabhängig von
     Schattenverläufen zu finden.
@@ -171,15 +220,15 @@ def detect_defects(image, spot_threshold=15, debug=False):
     # WICHTIG: Wir müssen den Rand stark verkleinern.
     # Der Übergang vom hellen Snack zum schwarzen Hintergrund ist eine "riesige Kante",
     # die wir ignorieren müssen.
-    kernel_erode = np.ones((5, 5), np.uint8)
-    mask_analysis = cv2.erode(mask_obj, kernel_erode, iterations=5) 
+    kernel_erode = np.ones(EROSION_KERNEL_SIZE, np.uint8)
+    mask_analysis = cv2.erode(mask_obj, kernel_erode, iterations=EROSION_ITERATIONS) 
     # Falls zu viel vom Objekt verschwindet: iterations verringern (z.B. 3)
 
     # 4. Black-Hat Transformation
     # Wir definieren eine Größe für die Flecken, die wir suchen.
     # Kernel-Größe (15, 15) bedeutet: "Suche Dinge, die kleiner sind als ca. 15 Pixel"
     # Alles was größer ist (wie Schattenverläufe), wird ignoriert.
-    kernel_morph = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15))
+    kernel_morph = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, BLACKHAT_KERNEL_SIZE)
     blackhat_img = cv2.morphologyEx(gray, cv2.MORPH_BLACKHAT, kernel_morph)
 
     # Das blackhat_img ist jetzt fast schwarz, nur die Flecken leuchten weiß hervor.
@@ -188,14 +237,14 @@ def detect_defects(image, spot_threshold=15, debug=False):
     # 5. Schwellenwert auf den Kontrast
     # Hier definieren wir: "Der Fleck muss mindestens 30 Helligkeitsstufen dunkler 
     # sein als seine direkte Umgebung".
-    contrast_threshold = 30 
+    contrast_threshold = BLACKHAT_CONTRAST_THRESHOLD 
     _, mask_defects = cv2.threshold(blackhat_img, contrast_threshold, 255, cv2.THRESH_BINARY)
 
     # 6. Nur Defekte IM Objekt betrachten
     valid_defects = cv2.bitwise_and(mask_defects, mask_defects, mask=mask_analysis)
     
     # (Optional) Rauschen entfernen (Punkte kleiner als 2px weg)
-    valid_defects = cv2.morphologyEx(valid_defects, cv2.MORPH_OPEN, np.ones((2,2), np.uint8))
+    valid_defects = cv2.morphologyEx(valid_defects, cv2.MORPH_OPEN, np.ones(NOISE_KERNEL_SIZE, np.uint8))
 
     # 7. Ergebnis
     spot_area = cv2.countNonZero(valid_defects)
@@ -212,6 +261,151 @@ def detect_defects(image, spot_threshold=15, debug=False):
         "spot_area": spot_area
     }
 
+def print_table(headers, rows, indent="  "):
+    """Gibt eine einfache Tabelle mit fester Spaltenbreite aus."""
+    widths = [len(header) for header in headers]
+    for row in rows:
+        for i, value in enumerate(row):
+            widths[i] = max(widths[i], len(value))
+    header_line = indent + " | ".join(headers[i].ljust(widths[i]) for i in range(len(headers)))
+    divider_line = indent + "-+-".join("-" * widths[i] for i in range(len(headers)))
+    print(header_line)
+    print(divider_line)
+    for row in rows:
+        print(indent + " | ".join(row[i].ljust(widths[i]) for i in range(len(row))))
+    print()
+
+def describe_priority_chain():
+    """Ermittelt die Priorisierungsreihenfolge der Zielklassen."""
+    class_priority = {}
+    for label, prio in LABEL_PRIORITIES.items():
+        cls = LABEL_CLASS_MAP.get(label, label.title())
+        if cls not in class_priority or prio < class_priority[cls]:
+            class_priority[cls] = prio
+    if not class_priority:
+        return ""
+    ordered = [name for name, _ in sorted(class_priority.items(), key=lambda item: item[1])]
+    return " > ".join(ordered)
+
+def normalize_relative_path(path):
+    """Bringt Pfadangaben in ein einheitliches Format."""
+    if not path:
+        return ""
+    normalized = path.replace("\\", "/")
+    marker = "Data/Images/"
+    if marker in normalized:
+        normalized = normalized.split(marker, 1)[1]
+    return normalized.lstrip("/")
+
+def resolve_priority_label(raw_label):
+    """Wählt bei Mehrfachlabels den wichtigsten Eintrag."""
+    if not raw_label:
+        return None
+    candidates = [lbl.strip().lower() for lbl in raw_label.split(",") if lbl.strip()]
+    if not candidates:
+        return None
+    candidates.sort(key=lambda lbl: LABEL_PRIORITIES.get(lbl, 100))
+    return candidates[0]
+
+def load_annotations(annotation_file):
+    annotations = {}
+    if not os.path.exists(annotation_file):
+        print(f"\nHinweis: '{annotation_file}' nicht gefunden, Validierung übersprungen.")
+        return annotations
+
+    with open(annotation_file, newline="", encoding="utf-8") as csv_file:
+        reader = csv.DictReader(csv_file)
+        for row in reader:
+            rel_path = normalize_relative_path(row.get("image", ""))
+            if not rel_path:
+                continue
+            base_label = resolve_priority_label(row.get("label", ""))
+            if not base_label:
+                continue
+            annotations[rel_path] = LABEL_CLASS_MAP.get(base_label, "Rest")
+
+    return annotations
+
+def copy_misclassified(pred_entry, expected_label, falsch_dir):
+    """Speichert fehlerhafte Bilder mit zusätzlicher Labelinformation."""
+    os.makedirs(falsch_dir, exist_ok=True)
+    rel_name = normalize_relative_path(pred_entry.get("relative_path", ""))
+    if not rel_name:
+        rel_name = os.path.basename(pred_entry["source_path"])
+    rel_name = rel_name.replace("/", "_")
+    base, ext = os.path.splitext(rel_name)
+    safe_expected = expected_label.replace(" ", "_")
+    safe_pred = pred_entry["predicted"].replace(" ", "_")
+    new_name = f"{base}_gt-{safe_expected}_pred-{safe_pred}{ext}"
+    dest_path = os.path.join(falsch_dir, new_name)
+    shutil.copy(pred_entry["source_path"], dest_path)
+
+def validate_predictions(predictions, annotations, falsch_dir):
+    """Vergleicht Sortierergebnis mit den Annotationen und erstellt einen Report."""
+    if not annotations:
+        print("\nKeine Annotationen geladen -> Validierung übersprungen.")
+        return
+
+    if os.path.exists(falsch_dir):
+        shutil.rmtree(falsch_dir)
+
+    total = 0
+    correct = 0
+    mismatches = []
+    per_class = {}
+
+    for pred in predictions:
+        rel_path = normalize_relative_path(pred.get("relative_path", ""))
+        expected = annotations.get(rel_path)
+        if expected is None:
+            continue
+        total += 1
+        cls_stats = per_class.setdefault(expected, {"total": 0, "correct": 0})
+        cls_stats["total"] += 1
+        if expected == pred["predicted"]:
+            correct += 1
+            cls_stats["correct"] += 1
+        else:
+            mismatches.append((pred, expected))
+
+    if total == 0:
+        print("\nKeine passenden Annotationen gefunden -> Validierung übersprungen.")
+        return
+
+    accuracy = (correct / total) * 100
+    skipped = len(predictions) - total
+    print("\nValidierung (image_anno.csv):")
+    print("- Gesamtstatistik:")
+    print()
+    summary_headers = ["Statistik", "Wert"]
+    summary_rows = [
+        ["Bewertet", str(total)],
+        ["Treffer", str(correct)],
+        ["Genauigkeit %", f"{accuracy:.2f}"],
+        ["Falsch zugeordnet", str(len(mismatches))],
+    ]
+    if skipped:
+        summary_rows.append(["Ohne passende Annotation", str(skipped)])
+    print_table(summary_headers, summary_rows)
+    chain = describe_priority_chain()
+    if chain:
+        print(f"Priorisierung (höchste Priorität links): {chain}")
+        print()
+
+    if per_class:
+        print("- Klassenübersicht:")
+        headers = ["Klasse", "Erwartet", "Treffer", "Genauigkeit %"]
+        rows = []
+        for cls_name in sorted(per_class.keys()):
+            stats = per_class[cls_name]
+            acc_cls = (stats["correct"] / stats["total"]) * 100 if stats["total"] else 0.0
+            rows.append([cls_name, str(stats["total"]), str(stats["correct"]), f"{acc_cls:.2f}"])
+        print_table(headers, rows)
+
+    if mismatches:
+        for pred, expected in mismatches:
+            copy_misclassified(pred, expected, falsch_dir)
+
 def sort_dataset_manual_rules(source_data_dir, sorted_data_dir):
     print("\nStarte Sortierung und Symmetrie-Berechnung...")
     CLASSES = ["Normal", "Bruch", "Farbfehler", "Rest"]
@@ -222,6 +416,7 @@ def sort_dataset_manual_rules(source_data_dir, sorted_data_dir):
         os.makedirs(os.path.join(sorted_data_dir, cls), exist_ok=True)
 
     stats_counter = {k: 0 for k in CLASSES}
+    predictions = []
 
     for root, dirs, files in os.walk(source_data_dir):
         for file in files:
@@ -252,7 +447,7 @@ def sort_dataset_manual_rules(source_data_dir, sorted_data_dir):
                 reason = f"Zu viele Fragmente: {total_holes}"
             else:
                 # --- Geometrie ist OK (7 Löcher), jetzt Farbcheck ---
-                col_res = detect_defects(image, spot_threshold=15)
+                col_res = detect_defects(image, spot_threshold=DEFECT_SPOT_THRESHOLD)
                 
                 if col_res["is_defective"]:
                     target_class = "Farbfehler"
@@ -272,7 +467,7 @@ def sort_dataset_manual_rules(source_data_dir, sorted_data_dir):
                         
                         # Score invertieren: 100 = 0% Abweichung, 0 = 30%+ Abweichung
                         # Faktor 3.0 ist ein Skalierungsfaktor für Empfindlichkeit
-                        symmetry_score = max(0, min(100, int(100 * (1 - (cv * 3.0)))))
+                        symmetry_score = max(0, min(100, int(100 * (1 - (cv * SYMMETRY_SENSITIVITY)))))
                     else:
                         symmetry_score = 0
 
@@ -282,12 +477,24 @@ def sort_dataset_manual_rules(source_data_dir, sorted_data_dir):
 
             # Datei kopieren (mit Prefix nur bei Normal)
             new_filename = f"{file_prefix}{file}"
-            shutil.copy(img_path, os.path.join(sorted_data_dir, target_class, new_filename))
+            dest_path = os.path.join(sorted_data_dir, target_class, new_filename)
+            shutil.copy(img_path, dest_path)
             
             stats_counter[target_class] += 1
             print(f"[{target_class}] {new_filename} -> {reason}")
+            
+            rel_path = normalize_relative_path(os.path.relpath(img_path, source_data_dir))
+            predictions.append({
+                "relative_path": rel_path,
+                "predicted": target_class,
+                "source_path": img_path,
+                "destination_path": dest_path,
+                "reason": reason,
+                "original_name": file,
+            })
 
     print(f"\nFertig: {stats_counter}")
+    return predictions
 
 # ==========================================
 # MAIN PROGRAMM
@@ -296,21 +503,20 @@ def sort_dataset_manual_rules(source_data_dir, sorted_data_dir):
 # KORREKTUR: __name__ und __main__ (doppelte Unterstriche!)
 if __name__ == '__main__':
     
-    # PFADE (Bitte anpassen, falls nötig)
-    raw_data_dir = os.path.join("data", "Images") 
-    processed_data_dir = os.path.join("data", "processed") 
-    sorted_data_dir = os.path.join("data", "sorted") 
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
 
     # 1. VORVERARBEITUNG
     # Prüfen ob Rohdaten da sind
-    if os.path.exists(raw_data_dir):
+    if os.path.exists(RAW_DATA_DIR):
         # Vorverarbeitung starten
-        prepare_dataset(raw_data_dir, processed_data_dir)
+        prepare_dataset(RAW_DATA_DIR, PROCESSED_DATA_DIR)
         
         # 2. SORTIERUNG
-        if os.path.exists(processed_data_dir):
+        if os.path.exists(PROCESSED_DATA_DIR):
             # KORREKTUR: Hier den richtigen Funktionsnamen aufrufen!
-            sort_dataset_manual_rules(processed_data_dir, sorted_data_dir)
+            predictions = sort_dataset_manual_rules(PROCESSED_DATA_DIR, SORTED_DATA_DIR)
+            annotations = load_annotations(ANNOTATION_FILE)
+            validate_predictions(predictions, annotations, FALSCH_DIR)
 
     else:
-        print(f"Fehler: Quellordner '{raw_data_dir}' nicht gefunden! Bitte Ordner erstellen und Bilder hineinlegen.")
+        print(f"Fehler: Quellordner '{RAW_DATA_DIR}' nicht gefunden! Bitte Ordner erstellen und Bilder hineinlegen.")

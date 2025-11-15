@@ -30,11 +30,16 @@ FRAGMENT_AREA_MIN = 8000
 REST_WINDOW_AREA_THRESHOLD = 3600
 
 EROSION_KERNEL_SIZE = (5, 5)
-EROSION_ITERATIONS = 5
+EROSION_ITERATIONS = 7
 BLACKHAT_KERNEL_SIZE = (15, 15)
 BLACKHAT_CONTRAST_THRESHOLD = 30
 NOISE_KERNEL_SIZE = (2, 2)
 DEFECT_SPOT_THRESHOLD = 60
+RELATIVE_DEFECT_RATIO = 0.001
+FINE_EROSION_ITERATIONS = 3
+FINE_SPOT_THRESHOLD = 40
+FINE_RELATIVE_DEFECT_RATIO = 0.0015
+TEXTURE_STD_THRESHOLD = 15.0
 SYMMETRY_SENSITIVITY = 3.0
 
 LABEL_PRIORITIES = {
@@ -245,6 +250,7 @@ def detect_defects(image, spot_threshold=DEFECT_SPOT_THRESHOLD, debug=False):
     # die wir ignorieren müssen.
     kernel_erode = np.ones(EROSION_KERNEL_SIZE, np.uint8)
     mask_analysis = cv2.erode(mask_obj, kernel_erode, iterations=EROSION_ITERATIONS) 
+    object_area = cv2.countNonZero(mask_analysis)
     # Falls zu viel vom Objekt verschwindet: iterations verringern (z.B. 3)
 
     # 4. Black-Hat Transformation
@@ -271,17 +277,33 @@ def detect_defects(image, spot_threshold=DEFECT_SPOT_THRESHOLD, debug=False):
 
     # 7. Ergebnis
     spot_area = cv2.countNonZero(valid_defects)
-    is_defective = spot_area > spot_threshold
+    texture_std = float(np.std(gray[mask_analysis == 255])) if object_area else 0.0
+    ratio = spot_area / max(1, object_area)
+    meets_ratio = (ratio >= RELATIVE_DEFECT_RATIO) if RELATIVE_DEFECT_RATIO > 0 else True
+    is_defective = spot_area > spot_threshold and meets_ratio
+
+    if not is_defective and FINE_EROSION_ITERATIONS > 0:
+        mask_fine = cv2.erode(mask_obj, kernel_erode, iterations=FINE_EROSION_ITERATIONS)
+        fine_area_obj = cv2.countNonZero(mask_fine)
+        valid_fine = cv2.bitwise_and(mask_defects, mask_defects, mask=mask_fine)
+        valid_fine = cv2.morphologyEx(valid_fine, cv2.MORPH_OPEN, np.ones(NOISE_KERNEL_SIZE, np.uint8))
+        fine_spot_area = cv2.countNonZero(valid_fine)
+        fine_ratio = fine_spot_area / max(1, fine_area_obj)
+        meets_fine_ratio = (fine_ratio >= FINE_RELATIVE_DEFECT_RATIO) if FINE_RELATIVE_DEFECT_RATIO > 0 else True
+        if fine_spot_area > FINE_SPOT_THRESHOLD and meets_fine_ratio:
+            is_defective = True
+            spot_area = fine_spot_area
 
     # DEBUG: Um zu sehen, was der Black-Hat sieht
     if debug:
         # Wir geben das maskierte Blackhat-Bild zurück, damit du die Flecken leuchten siehst
         debug_view = cv2.bitwise_and(blackhat_img, blackhat_img, mask=mask_analysis)
-        return {"is_defective": is_defective, "spot_area": spot_area, "debug_image": debug_view}
+        return {"is_defective": is_defective, "spot_area": spot_area, "texture_std": texture_std, "debug_image": debug_view}
 
     return {
         "is_defective": is_defective,
-        "spot_area": spot_area
+        "spot_area": spot_area,
+        "texture_std": texture_std
     }
 
 def print_table(headers, rows, indent="  "):
@@ -504,6 +526,9 @@ def sort_dataset_manual_rules(source_data_dir, sorted_data_dir):
                         if col_res["is_defective"]:
                             target_class = "Farbfehler"
                             reason = f"Fleck: {col_res['spot_area']}px"
+                        elif col_res.get("texture_std", 0) > TEXTURE_STD_THRESHOLD:
+                            target_class = "Farbfehler"
+                            reason = f"Textur: {col_res['texture_std']:.1f}"
                         else:
                             # --- ALLES OK -> SYMMETRIE BERECHNEN ---
                             # Wir berechnen, wie stark die Fensterflächen voneinander abweichen.

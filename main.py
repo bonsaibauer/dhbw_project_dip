@@ -26,44 +26,44 @@ TGT_H = 400  # Endhöhe des Warps; analog zu TGT_W; Range 200–600 px.
 
 # --- Geometrie-Features (cnt_hier, geom_feat, sort_run) ---
 EPS_FACT = 0.04  # Approx-Genauigkeit für Konturen; kleiner = mehr Ecken, größer = glatter; Range 0.01–0.1.
-HOLE_MIN = 100  # Kleinste Lochfläche; höher = ignoriert Mini-Löcher, niedriger = mehr Fehlzählungen; Range 10–400 px.
+HOLE_MIN = 10  # Kleinste Lochfläche; höher = ignoriert Mini-Löcher, niedriger = mehr Fehlzählungen; Range 10–400 px.
 WIND_MIN = 500  # Mindestfläche für Fenster; höher = filtert kleine Fenster, niedriger = zählt Störungen; Range 200–2000 px.
 CTR_MAXA = 3000  # Maximalfläche des Mittellochs; höher = tolerant bei Dehnung, niedriger = strenger; Range 1500–5000 px.
-FRAG_MIN = 6000  # Mindestfläche, um eine Neben-Kontur als Fragment zu zählen; höher = nur große Bruchstücke, niedriger = mehr False-Positives; Range 2000–12000 px.
-RWA_BASE = 4000  # Schwellwert für kleine Fenster-Durchschnitte; höher = weniger Rest-Hinweise, niedriger = schneller Rest; Range 2500–5000 px.
+FRAG_MIN = 3000  # Mindestfläche, um eine Neben-Kontur als Fragment zu zählen; höher = nur große Bruchstücke, niedriger = mehr False-Positives; Range 2000–12000 px.
+RWA_BASE = 5000  # Schwellwert für kleine Fenster-Durchschnitte; höher = weniger Rest-Hinweise, niedriger = schneller Rest; Range 2500–5000 px.
 RWA_STRG = 3500  # Stärkerer kleiner Fensterbereich; höher = weniger starke Hinweise, niedriger = Rest greift schneller; Range 2000–4500 px.
 RWA_CMP = 3400  # Kompakt-Check für Fenster; höher = erlaubt größere Fenster, niedriger = markiert kompakter; Range 2000–4500 px.
 RWA_LRG = 4300  # Schwelle für große Fenster; höher = seltener Hinweis, niedriger = schneller Rest wegen großer Fenster; Range 3500–6000 px.
 RHL_BASE = 1.05  # Grundschwelle für Hüllfläche; höher = toleranter gegenüber Kanten, niedriger = Rest bei kleinen Schäden; Range 1.0–1.2.
 RHL_STRG = 1.08  # Starker Rest über Hüllratio; höher = weniger starke Signals, niedriger = sensibler; Range 1.02–1.3.
 RWR_BASE = 3.0  # Fensterflächenverhältnis Basisschwelle; höher = nur extreme Unterschiede triggern, niedriger = Rest reagiert schneller; Range 1.5–5.
-RWR_STRG = 4.5  # Starker Fenster-Verhältnis-Check; höher = strenger, niedriger = früh starke Hinweise; Range 2.5–6.
-RMULT_SP = 120  # Spotfläche für Mehrfachobjekt-Bewertung; höher = ignoriert kleinere Flecken, niedriger = reagiert früher; Range 40–250 px.
+RWR_STRG = 5.0  # Starker Fenster-Verhältnis-Check; höher = strenger, niedriger = früh starke Hinweise; Range 2.5–6.
+RMULT_SP = 80  # Spotfläche für Mehrfachobjekt-Bewertung; höher = ignoriert kleinere Flecken, niedriger = reagiert früher; Range 40–250 px.
 
 # --- Farb-/Spotprüfung (spot_det, sort_run) ---
-ERO_KN = (5, 5)  # Kernel für grobe Erosion; größer = mehr Randverlust, kleiner = mehr Rauschen; Range 3–9 px.
-ERO_ITER = 4  # Anzahl grober Erosionen; höher = glatter Rand, niedriger = mehr Kantenrauschen; Range 2–6.
-BKH_KN = (15, 15)  # Kernel für Blackhat; größer = sucht größere Flecken, kleiner = empfindlich auf Rauschen; Range 7–25 px.
-BKH_CON = 30  # Kontrastlimit für Fleckmaske; höher = nur starke Flecken, niedriger = mehr False-Positives; Range 10–60.
-NOI_KN = (2, 2)  # Kernel für Rausch-Öffnung; größer = entfernt auch echte Spots, kleiner = lässt Noise; Range 1–4 px.
-SPT_MIN = 60  # Spotfläche für grobe Defekte; höher = nur große Flecken, niedriger = mehr Meldungen; Range 20–150 px.
-SPT_RAT = 0.0008  # Relativer Fleckenanteil; höher = streng, niedriger = empfindlich; Range 0.0003–0.002.
-FERO_ITR = 1  # Iterationen der Fein-Erosion; höher = kleinerer Innenbereich, niedriger = mehr Hintergrund; Range 0–3.
+ERO_KN = (4, 4)  # Kernel für grobe Erosion; größer = mehr Randverlust, kleiner = mehr Rauschen; Range 3–9 px.                              4,4
+ERO_ITER = 4  # Anzahl grober Erosionen; höher = glatter Rand, niedriger = mehr Kantenrauschen; Range 2–6.                                  mittel
+BKH_KN = (10, 10)  # Kernel für Blackhat; größer = sucht größere Flecken, kleiner = empfindlich auf Rauschen; Range 7–25 px.                10, 10
+BKH_CON = 30  # Kontrastlimit für Fleckmaske; höher = nur starke Flecken, niedriger = mehr False-Positives; Range 10–60.                    30
+NOI_KN = (2, 2)  # Kernel für Rausch-Öffnung; größer = entfernt auch echte Spots, kleiner = lässt Noise; Range 1–4 px.                      2,2
+SPT_MIN = 30  # Spotfläche für grobe Defekte; höher = nur große Flecken, niedriger = mehr Meldungen; Range 20–150 px.                       30
+SPT_RAT = 0.008  # Relativer Fleckenanteil; höher = streng, niedriger = empfindlich; Range 0.0003–0.002.
+FERO_ITR = 0  # Iterationen der Fein-Erosion; höher = kleinerer Innenbereich, niedriger = mehr Hintergrund; Range 0–3.
 SPT_FIN = 20  # Mindestfläche bei Feinprüfung; höher = ignoriert kleine Spots, niedriger = früher Alarm; Range 5–80 px.
 FSPT_RAT = 0.0008  # Relativanteil bei Feinprüfung; höher = strenger, niedriger = empfindlicher; Range 0.0003–0.002.
 TXT_STD = 15.0  # Textur-STD-Grenze; höher = weniger Farbalarme, niedriger = empfindlicher; Range 8–25.
-INER_ITR = 2  # Innen-Erosion für Spotüberprüfung; höher = stärkerer Innenfokus, niedriger = mehr Rand; Range 0–4.
+INER_ITR = 4  # Innen-Erosion für Spotüberprüfung; höher = stärkerer Innenfokus, niedriger = mehr Rand; Range 0–4.
 INSP_RAT = 0.45  # Anteil innerer Spots; höher = strenger, niedriger = auch Randflecken; Range 0.2–0.8.
 LAB_STD = 4.0  # LAB-a Standardabweichung; höher = nur starke Farbstiche, niedriger = frühzeitiger Alarm; Range 2–10.
 COL_SYM = 60  # Symmetrie-Minimum für Farbalarm; höher = verlangt bessere Geometrie, niedriger = erlaubt unsymmetrische Teile; Range 40–90.
 COL_SPT = 30  # Mindestfläche für Textur-Farbcheck; höher = ignoriert kleine Spots, niedriger = rauschig; Range 10–80 px.
-COL_LAB = 40  # Mindestfläche für LAB-Alarm; höher = strenger, niedriger = empfindlicher; Range 20–100 px.
+COL_LAB = 100  # Mindestfläche für LAB-Alarm; höher = strenger, niedriger = empfindlicher; Range 20–100 px.
 COL_STR = 80  # Starke Fleckschwelle; höher = nur sehr große Flecken, niedriger = viele harte Hinweise; Range 50–150 px.
-BRK_SYM = 78  # Symmetriewert für Bruch/Rest; höher = mehr Teile als Bruch, niedriger = mehr Rest; Range 60–90.
-DRK_PCT = 5  # Perzentil für Dark-Delta; höher = betrachtet hellere Pixel, niedriger = tiefe Schatten; Range 1–15.
-DRK_DLT = 18  # Mindestrand für Dark-Delta; höher = nur starker Kontrast, niedriger = sensibler; Range 8–30.
-DRK_MED = 80  # Mindestmedian für Dark-Check; höher = nur helle Snacks, niedriger = auch dunkle Snacks; Range 40–120.
-DRK_SPT = 30  # Mindestspotfläche für Dark-Alarm; höher = ignoriert Kleines, niedriger = empfindlich; Range 10–80 px.
+BRK_SYM = 100  # Symmetriewert für Bruch/Rest; höher = mehr Teile als Bruch, niedriger = mehr Rest; Range 60–90.                             
+DRK_PCT = 4  # Perzentil für Dark-Delta; höher = betrachtet hellere Pixel, niedriger = tiefe Schatten; Range 1–15.                          tiefer
+DRK_DLT = 18  # Mindestrand für Dark-Delta; höher = nur starker Kontrast, niedriger = sensibler; Range 8–30.                                mittel
+DRK_MED = 80  # Mindestmedian für Dark-Check; höher = nur helle Snacks, niedriger = auch dunkle Snacks; Range 40–120.                       mittel
+DRK_SPT = 40  # Mindestspotfläche für Dark-Alarm; höher = ignoriert Kleines, niedriger = empfindlich; Range 10–80 px.                       mittel
 
 # --- Kantenschaden & Symmetrie (sort_run) ---
 EDGE_DMG = 1.05  # Verhältnis Hülle/Perimeter; höher = toleranter, niedriger = früher Bruchalarm; Range 1.0–1.5.
@@ -289,6 +289,19 @@ def geom_feat(contours, hierarchy):
                     stats["window_areas"].append(hole_area) # <--- NEU: Fläche speichern
                 elif corners > 5 and hole_area < CTR_MAXA:
                     stats["has_center_hole"] = True
+    
+    # Fallback: Wenn das Mittelloch falsch als Fenster erkannt wurde (zu wenige Ecken),
+    # entfernen wir die kleinste Fläche als Zentrum, sofern sie plausibel klein ist.
+    if (
+        not stats["has_center_hole"]
+        and len(stats["window_areas"]) >= 6
+    ):
+        min_idx = int(np.argmin(stats["window_areas"]))
+        min_area = stats["window_areas"][min_idx]
+        if min_area <= CTR_MAXA:
+            stats["has_center_hole"] = True
+            stats["window_areas"].pop(min_idx)
+            stats["num_windows"] = len(stats["window_areas"])
                     
     return stats
 
@@ -599,12 +612,13 @@ def sort_run(source_data_dir, sorted_data_dir):
             edge_segments = geo.get("edge_segments", 0)
             window_ratio = (max(areas) / max(1, min(areas))) if areas and min(areas) > 0 else 1
 
-            symmetry_score = 0
+            symmetry_score = 0.0
             if len(areas) > 0:
                 mean_a = np.mean(areas)
                 std_a = np.std(areas)
                 cv = std_a / mean_a if mean_a > 0 else 0
-                symmetry_score = max(0, min(100, int(100 * (1 - (cv * SYM_SEN)))))
+                raw_score = 100 * (1 - (cv * SYM_SEN))
+                symmetry_score = max(0.0, min(100.0, round(raw_score, 1)))
 
             rest_reason = None
             rest_strength = 0
@@ -747,8 +761,7 @@ def sort_run(source_data_dir, sorted_data_dir):
                         classified = True
                     else:
                         if target_class == "Normal":
-                            file_prefix = f"{symmetry_score:03d}_"
-                            reason = f"Symmetrie: {symmetry_score}/100"
+                            reason = f"Symmetrie: {symmetry_score:.2f}%"
 
                     if not classified:
                         if target_class == "Normal" and rest_strength >= 1 and rest_reason:
@@ -756,10 +769,16 @@ def sort_run(source_data_dir, sorted_data_dir):
                             reason = rest_reason
                         elif source_is_anomaly and symmetry_score < BRK_SYM:
                             target_class = "Bruch"
-                            reason = f"Asymmetrie: {symmetry_score}/100"
+                            reason = f"Asymmetrie: {symmetry_score:.2f}%"
                         elif target_class == "Normal":
-                            file_prefix = f"{symmetry_score:03d}_"
-                            reason = f"Symmetrie: {symmetry_score}/100"
+                            reason = f"Symmetrie: {symmetry_score:.2f}%"
+
+            if target_class == "Normal":
+                file_prefix = f"{symmetry_score:06.2f}_"
+                if not reason or reason == "OK":
+                    reason = f"Symmetrie: {symmetry_score:.2f}%"
+            else:
+                file_prefix = ""
 
             # Datei kopieren (mit Prefix nur bei Normal)
             new_filename = f"{file_prefix}{file}"
@@ -822,4 +841,3 @@ if __name__ == '__main__':
 
     else:
         print(f"Fehler: Quellordner '{RAW_DIR}' nicht gefunden! Bitte Ordner erstellen und Bilder hineinlegen.")
-

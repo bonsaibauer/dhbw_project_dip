@@ -27,7 +27,9 @@ MIN_HOLE_AREA = 100
 MIN_WINDOW_AREA = 500
 MAX_CENTER_HOLE_AREA = 3000
 FRAGMENT_AREA_MIN = 8000
-REST_WINDOW_AREA_THRESHOLD = 3600
+REST_WINDOW_AREA_THRESHOLD = 3800
+REST_HULL_RATIO_THRESHOLD = 1.05
+REST_WINDOW_RATIO_THRESHOLD = 3.0
 
 EROSION_KERNEL_SIZE = (5, 5)
 EROSION_ITERATIONS = 7
@@ -37,9 +39,13 @@ NOISE_KERNEL_SIZE = (2, 2)
 DEFECT_SPOT_THRESHOLD = 60
 RELATIVE_DEFECT_RATIO = 0.001
 FINE_EROSION_ITERATIONS = 3
-FINE_SPOT_THRESHOLD = 40
-FINE_RELATIVE_DEFECT_RATIO = 0.0015
+FINE_SPOT_THRESHOLD = 35
+FINE_RELATIVE_DEFECT_RATIO = 0.0012
 TEXTURE_STD_THRESHOLD = 15.0
+INNER_EROSION_ITERATIONS = 2
+INNER_SPOT_RATIO_THRESHOLD = 0.6
+LAB_A_STD_THRESHOLD = 4.0
+BRUCH_SYMMETRY_THRESHOLD = 45
 SYMMETRY_SENSITIVITY = 3.0
 
 LABEL_PRIORITIES = {
@@ -187,7 +193,7 @@ def analyze_geometry_features(contours, hierarchy):
     stats = {
         "has_object": False, "area": 0, "solidity": 0,
         "num_windows": 0, "has_center_hole": False, "main_contour": None,
-        "fragment_count": 0,
+        "fragment_count": 0, "convex_area": 0,
         "window_areas": []  # <--- NEU: Liste für die Flächengrößen
     }
     
@@ -201,6 +207,8 @@ def analyze_geometry_features(contours, hierarchy):
     stats["has_object"] = True
     stats["area"] = area
     stats["main_contour"] = main_cnt
+    hull = cv2.convexHull(main_cnt)
+    stats["convex_area"] = cv2.contourArea(hull)
 
     # Löcher analysieren
     epsilon_factor = EPSILON_FACTOR
@@ -278,9 +286,21 @@ def detect_defects(image, spot_threshold=DEFECT_SPOT_THRESHOLD, debug=False):
     # 7. Ergebnis
     spot_area = cv2.countNonZero(valid_defects)
     texture_std = float(np.std(gray[mask_analysis == 255])) if object_area else 0.0
+    lab = cv2.cvtColor(image, cv2.COLOR_BGR2LAB)
+    a_channel = lab[:, :, 1]
+    a_std = float(np.std(a_channel[mask_analysis == 255])) if object_area else 0.0
+    inner_mask = mask_analysis
+    inner_spot_area = spot_area
+    if INNER_EROSION_ITERATIONS > 0:
+        inner_mask = cv2.erode(mask_analysis, kernel_erode, iterations=INNER_EROSION_ITERATIONS)
+        inner_valid = cv2.bitwise_and(valid_defects, valid_defects, mask=inner_mask)
+        inner_spot_area = cv2.countNonZero(inner_valid)
+
     ratio = spot_area / max(1, object_area)
     meets_ratio = (ratio >= RELATIVE_DEFECT_RATIO) if RELATIVE_DEFECT_RATIO > 0 else True
-    is_defective = spot_area > spot_threshold and meets_ratio
+    inner_ratio = inner_spot_area / max(1, spot_area)
+    meets_inner = (inner_ratio >= INNER_SPOT_RATIO_THRESHOLD) if spot_area > 0 else False
+    is_defective = spot_area > spot_threshold and meets_ratio and meets_inner
 
     if not is_defective and FINE_EROSION_ITERATIONS > 0:
         mask_fine = cv2.erode(mask_obj, kernel_erode, iterations=FINE_EROSION_ITERATIONS)
@@ -290,7 +310,14 @@ def detect_defects(image, spot_threshold=DEFECT_SPOT_THRESHOLD, debug=False):
         fine_spot_area = cv2.countNonZero(valid_fine)
         fine_ratio = fine_spot_area / max(1, fine_area_obj)
         meets_fine_ratio = (fine_ratio >= FINE_RELATIVE_DEFECT_RATIO) if FINE_RELATIVE_DEFECT_RATIO > 0 else True
-        if fine_spot_area > FINE_SPOT_THRESHOLD and meets_fine_ratio:
+        fine_inner_area = fine_spot_area
+        if INNER_EROSION_ITERATIONS > 0:
+            fine_inner_mask = cv2.erode(mask_fine, kernel_erode, iterations=INNER_EROSION_ITERATIONS)
+            fine_inner_valid = cv2.bitwise_and(valid_fine, valid_fine, mask=fine_inner_mask)
+            fine_inner_area = cv2.countNonZero(fine_inner_valid)
+        fine_inner_ratio = fine_inner_area / max(1, fine_spot_area) if fine_spot_area > 0 else 0
+        meets_fine_inner = (fine_inner_ratio >= INNER_SPOT_RATIO_THRESHOLD) if fine_spot_area > 0 else False
+        if fine_spot_area > FINE_SPOT_THRESHOLD and meets_fine_ratio and meets_fine_inner:
             is_defective = True
             spot_area = fine_spot_area
 
@@ -298,12 +325,13 @@ def detect_defects(image, spot_threshold=DEFECT_SPOT_THRESHOLD, debug=False):
     if debug:
         # Wir geben das maskierte Blackhat-Bild zurück, damit du die Flecken leuchten siehst
         debug_view = cv2.bitwise_and(blackhat_img, blackhat_img, mask=mask_analysis)
-        return {"is_defective": is_defective, "spot_area": spot_area, "texture_std": texture_std, "debug_image": debug_view}
+        return {"is_defective": is_defective, "spot_area": spot_area, "texture_std": texture_std, "lab_std": a_std, "debug_image": debug_view}
 
     return {
         "is_defective": is_defective,
         "spot_area": spot_area,
-        "texture_std": texture_std
+        "texture_std": texture_std,
+        "lab_std": a_std
     }
 
 def print_table(headers, rows, indent="  "):
@@ -498,10 +526,28 @@ def sort_dataset_manual_rules(source_data_dir, sorted_data_dir):
             file_prefix = "" 
 
             total_holes = geo["num_windows"] + (1 if geo["has_center_hole"] else 0)
+            source_is_anomaly = "Anomaly" in img_path
+
+            areas = geo["window_areas"]
+            avg_window = np.mean(areas) if areas else 0
+            hull_ratio = (geo.get("convex_area", 0) / max(1, geo.get("area", 0))) if geo.get("area") else 0
+            window_ratio = (max(areas) / max(1, min(areas))) if areas and min(areas) > 0 else 1
+
+            rest_reason = None
+            if source_is_anomaly:
+                if geo["fragment_count"] > 0:
+                    rest_reason = f"Fragmente: {geo['fragment_count']}"
+                elif areas and avg_window < REST_WINDOW_AREA_THRESHOLD and window_ratio > REST_WINDOW_RATIO_THRESHOLD:
+                    rest_reason = f"Fensterverh.: {window_ratio:.1f}"
+                elif hull_ratio > REST_HULL_RATIO_THRESHOLD:
+                    rest_reason = f"Hülle: {hull_ratio:.2f}"
 
             if not geo["has_object"]:
                 target_class = "Rest"
                 reason = "Kein Objekt"
+            elif rest_reason:
+                target_class = "Rest"
+                reason = rest_reason
             elif total_holes < 7:
                 target_class = "Bruch"
                 reason = f"Zu wenig Löcher: {total_holes}"
@@ -509,46 +555,36 @@ def sort_dataset_manual_rules(source_data_dir, sorted_data_dir):
                 target_class = "Rest"
                 reason = f"Zu viele Fragmente: {total_holes}"
             else:
-                if geo["fragment_count"] > 0:
-                    target_class = "Rest"
-                    reason = f"Fragmente: {geo['fragment_count']}"
+                if source_is_anomaly:
+                    col_res = detect_defects(image, spot_threshold=DEFECT_SPOT_THRESHOLD)
                 else:
-                    # --- Geometrie ist OK (7 Löcher), jetzt Farbcheck ---
-                    areas = geo["window_areas"]
-                    avg_window = np.mean(areas) if areas else 0
+                    col_res = {"is_defective": False, "spot_area": 0, "texture_std": 0, "lab_std": 0}
+                
+                if source_is_anomaly and col_res["is_defective"]:
+                    target_class = "Farbfehler"
+                    reason = f"Fleck: {col_res['spot_area']}px"
+                elif source_is_anomaly and col_res.get("texture_std", 0) > TEXTURE_STD_THRESHOLD:
+                    target_class = "Farbfehler"
+                    reason = f"Textur: {col_res['texture_std']:.1f}"
+                elif source_is_anomaly and col_res["spot_area"] > 5 and col_res.get("lab_std", 0) > LAB_A_STD_THRESHOLD:
+                    target_class = "Farbfehler"
+                    reason = f"Farbe: {col_res['lab_std']:.1f}"
+                else:
+                    # --- ALLES OK -> SYMMETRIE BERECHNEN ---
+                    if target_class == "Normal":
+                        symmetry_score = 0
+                        if len(areas) > 0:
+                            mean_a = np.mean(areas)
+                            std_a = np.std(areas)
+                            cv = std_a / mean_a if mean_a > 0 else 0
+                            symmetry_score = max(0, min(100, int(100 * (1 - (cv * SYMMETRY_SENSITIVITY)))))
 
-                    if areas and avg_window < REST_WINDOW_AREA_THRESHOLD:
-                        target_class = "Rest"
-                        reason = f"Fensterfläche: {avg_window:.0f}"
-                    else:
-                        col_res = detect_defects(image, spot_threshold=DEFECT_SPOT_THRESHOLD)
-                    
-                        if col_res["is_defective"]:
-                            target_class = "Farbfehler"
-                            reason = f"Fleck: {col_res['spot_area']}px"
-                        elif col_res.get("texture_std", 0) > TEXTURE_STD_THRESHOLD:
-                            target_class = "Farbfehler"
-                            reason = f"Textur: {col_res['texture_std']:.1f}"
-                        else:
-                            # --- ALLES OK -> SYMMETRIE BERECHNEN ---
-                            # Wir berechnen, wie stark die Fensterflächen voneinander abweichen.
-                            if len(areas) > 0:
-                                mean_a = np.mean(areas)
-                                std_a = np.std(areas) # Standardabweichung
-                                
-                                # Variationskoeffizient (Wie viel % weicht ein Fenster vom Durschnitt ab?)
-                                # Kleiner ist besser.
-                                cv = std_a / mean_a if mean_a > 0 else 0
-                                
-                                # Score invertieren: 100 = 0% Abweichung, 0 = 30%+ Abweichung
-                                # Faktor 3.0 ist ein Skalierungsfaktor für Empfindlichkeit
-                                symmetry_score = max(0, min(100, int(100 * (1 - (cv * SYMMETRY_SENSITIVITY)))))
-                            else:
-                                symmetry_score = 0
-
-                            # Prefix erstellen: z.B. "098_" für sehr symmetrisch
-                            file_prefix = f"{symmetry_score:03d}_"
-                            reason = f"Symmetrie: {symmetry_score}/100"
+                    if target_class == "Normal" and source_is_anomaly and symmetry_score < BRUCH_SYMMETRY_THRESHOLD:
+                        target_class = "Bruch"
+                        reason = f"Asymmetrie: {symmetry_score}/100"
+                    elif target_class == "Normal":
+                        file_prefix = f"{symmetry_score:03d}_"
+                        reason = f"Symmetrie: {symmetry_score}/100"
 
             # Datei kopieren (mit Prefix nur bei Normal)
             new_filename = f"{file_prefix}{file}"

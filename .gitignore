@@ -10,6 +10,7 @@ ENV/
 build/
 dist/
 *.egg-info/
+*.log
 
 # Laufzeit- und Ergebnisdaten
 #data/

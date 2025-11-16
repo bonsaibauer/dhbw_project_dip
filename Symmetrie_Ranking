@@ -6,14 +6,17 @@ import shutil
 # ==========================================
 # EINSTELLUNGEN
 # ==========================================
-# Der Ordner mit den 500 "Normal"-Bildern
+# Quellordner definieren
 SRC_NORMAL_DIR = os.path.join("output", "processed", "Normal")
-# Der neue Ordner für das Ergebnis
-RANKING_DIR = os.path.join("output", "Symmetrie-Ranking-V2")
+SRC_ANOMALY_DIR = os.path.join("output", "processed", "Anomaly")
+
+# Zielordner für die Rankings
+RANKING_NORMAL_DIR = os.path.join("output", "Symmetrie-Ranking-Normal")
+RANKING_ANOMALY_DIR = os.path.join("output", "Symmetrie-Ranking-Anomaly")
 
 
 # ==========================================
-# DIE NEUE SYMMETRIE-FUNKTION (DEINE METHODE)
+# DIE SYMMETRIE-FUNKTION (DEINE METHODE)
 # ==========================================
 def calculate_asymmetry_score(img):
     """
@@ -53,7 +56,6 @@ def calculate_asymmetry_score(img):
 
     # 3. Asymmetrie-Teile finden
     # 'asymmetric_parts_mask' sind alle Pixel, die nicht zum "Kern" gehören
-    # Das ist exakt die "rote Fläche"
     asymmetric_parts_mask = cv2.subtract(mask, core_mask)
     
     # 4. Score berechnen und zurückgeben
@@ -65,40 +67,41 @@ def calculate_asymmetry_score(img):
 # ==========================================
 # HAUPTSKRIPT: BATCH-VERARBEITUNG
 # ==========================================
-def run_ranking():
-    print(f"Starte Symmetrie-Ranking (V2 - Schnittmengen-Methode)...")
-    print(f"Quelle: {SRC_NORMAL_DIR}")
-    print(f"Ziel:   {RANKING_DIR}")
+
+def process_and_rank_folder(source_dir, target_dir):
+    """
+    Eine Helferfunktion, die alle Bilder aus einem Quellordner
+    analysiert, sortiert und in einen Zielordner kopiert.
+    """
+    print(f"\nStarte Ranking für: {source_dir}")
+    print(f"Ziel: {target_dir}")
 
     # Zielordner vorbereiten
-    if os.path.exists(RANKING_DIR):
-        shutil.rmtree(RANKING_DIR)
-    os.makedirs(RANKING_DIR)
+    if os.path.exists(target_dir):
+        shutil.rmtree(target_dir)
+    os.makedirs(target_dir)
 
     image_files = []
     try:
         # Alle Bilddateien finden
-        for filename in os.listdir(SRC_NORMAL_DIR):
+        for filename in os.listdir(source_dir):
             if filename.lower().endswith(('.png', '.jpg', '.jpeg')):
                 image_files.append(filename)
     except FileNotFoundError:
-        print(f"--- FEHLER ---")
-        print(f"Quellordner '{SRC_NORMAL_DIR}' nicht gefunden!")
-        print(f"Stelle sicher, dass du das Skript im Hauptordner 'dhbw_project_dip' ausführst")
-        print(f"und der Ordner 'output/processed/Normal' existiert.")
+        print(f"--- FEHLER: Quellordner '{source_dir}' nicht gefunden! ---")
         return
 
     if not image_files:
         print("Keine Bilder im Quellordner gefunden.")
         return
 
-    print(f"Analysiere {len(image_files)} 'Normal'-Bilder...")
+    print(f"Analysiere {len(image_files)} Bilder...")
     
     results = [] # Hier speichern wir (score, full_path, filename)
     
     # 1. Alle Bilder analysieren und Scores berechnen
     for idx, filename in enumerate(image_files, 1):
-        full_path = os.path.join(SRC_NORMAL_DIR, filename)
+        full_path = os.path.join(source_dir, filename)
         img = cv2.imread(full_path)
         
         if img is None:
@@ -111,26 +114,30 @@ def run_ranking():
             results.append((score, full_path, filename))
         
         # Fortschrittsanzeige
-        if idx % 50 == 0 or idx == len(image_files):
+        if idx % 25 == 0 or idx == len(image_files):
             print(f"  ...verarbeitet: {idx}/{len(image_files)} (Bild: {filename}, Score: {score})")
 
     # 2. Nach Score sortieren (der niedrigste Score = beste Symmetrie)
     results.sort(key=lambda x: x[0])
     
-    print("\nRanking abgeschlossen. Kopiere sortierte Dateien...")
+    print(f"\nRanking für '{source_dir}' abgeschlossen. Kopiere sortierte Dateien...")
 
     # 3. Sortierte Dateien in neuen Ordner kopieren
     for rank, (score, full_path, filename) in enumerate(results, 1):
         
-        # Neuen Dateinamen erstellen: 001_Score-00500_076_000.JPG
+        # Neuen Dateinamen erstellen: 001_Score-00500_...
         new_filename = f"{rank:03d}_Score-{score:05d}_{filename}"
-        dest_path = os.path.join(RANKING_DIR, new_filename)
+        dest_path = os.path.join(target_dir, new_filename)
         
         shutil.copy(full_path, dest_path)
 
-    print(f"\nFertig! {len(results)} Bilder wurden nach '{RANKING_DIR}' kopiert.")
-    print("Schau dir den Ordner an. Die Bilder mit den niedrigsten Scores (z.B. 001_Score-00150_...) sind die symmetrischsten.")
+    print(f"Fertig! {len(results)} Bilder wurden nach '{target_dir}' kopiert.")
+
 
 # --- Skript starten ---
 if __name__ == '__main__':
-    run_ranking()
+    # Führe das Ranking für beide Ordner nacheinander aus
+    process_and_rank_folder(SRC_NORMAL_DIR, RANKING_NORMAL_DIR)
+    process_and_rank_folder(SRC_ANOMALY_DIR, RANKING_ANOMALY_DIR)
+    
+    print("\nAlle Operationen abgeschlossen.")

@@ -94,12 +94,12 @@ BASE_PATH = "output/processed"
 
 # Test mit einem "Bruch"-Bild
 # Hier sollten die Bruch-Stellen rot leuchten und der Score HOCH sein
-test_full_rotational_asymmetry(os.path.join(BASE_PATH, "Anomaly", "011.JPG"))
+test_full_rotational_asymmetry(os.path.join(BASE_PATH, "Anomaly", "044.JPG"))
 
 # Test mit einem "Farbfehler"-Bild
 # Hier sollte fast nichts leuchten und der Score NIEDRIG sein
-test_full_rotational_asymmetry(os.path.join(BASE_PATH, "Normal", "035.JPG"))
+test_full_rotational_asymmetry(os.path.join(BASE_PATH, "Anomaly", "116.JPG"))
 
 # Test mit einem "guten" Normal-Bild
 # Hier sollte auch fast nichts leuchten und der Score SEHR NIEDRIG sein
-test_full_rotational_asymmetry(os.path.join(BASE_PATH, "Normal", "140.JPG"))
+test_full_rotational_asymmetry(os.path.join(BASE_PATH, "Anomaly", "140.JPG"))

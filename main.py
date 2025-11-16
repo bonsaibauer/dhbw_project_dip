@@ -289,6 +289,19 @@ def geom_feat(contours, hierarchy):
                     stats["window_areas"].append(hole_area) # <--- NEU: Fläche speichern
                 elif corners > 5 and hole_area < CTR_MAXA:
                     stats["has_center_hole"] = True
+    
+    # Fallback: Wenn das Mittelloch falsch als Fenster erkannt wurde (zu wenige Ecken),
+    # entfernen wir die kleinste Fläche als Zentrum, sofern sie plausibel klein ist.
+    if (
+        not stats["has_center_hole"]
+        and len(stats["window_areas"]) >= 6
+    ):
+        min_idx = int(np.argmin(stats["window_areas"]))
+        min_area = stats["window_areas"][min_idx]
+        if min_area <= CTR_MAXA:
+            stats["has_center_hole"] = True
+            stats["window_areas"].pop(min_idx)
+            stats["num_windows"] = len(stats["window_areas"])
                     
     return stats
 

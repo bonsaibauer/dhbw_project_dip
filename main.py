@@ -27,25 +27,36 @@ MIN_HOLE_AREA = 100
 MIN_WINDOW_AREA = 500
 MAX_CENTER_HOLE_AREA = 3000
 FRAGMENT_AREA_MIN = 8000
-REST_WINDOW_AREA_THRESHOLD = 3800
+REST_WINDOW_AREA_THRESHOLD = 4000
+REST_WINDOW_STRONG_AREA = 3500
+REST_WINDOW_COMPACT_THRESHOLD = 3400
+REST_WINDOW_LARGE_THRESHOLD = 4300
 REST_HULL_RATIO_THRESHOLD = 1.05
+REST_HULL_STRONG_THRESHOLD = 1.08
 REST_WINDOW_RATIO_THRESHOLD = 3.0
+REST_WINDOW_RATIO_STRONG = 4.5
 
 EROSION_KERNEL_SIZE = (5, 5)
-EROSION_ITERATIONS = 7
+EROSION_ITERATIONS = 6
 BLACKHAT_KERNEL_SIZE = (15, 15)
 BLACKHAT_CONTRAST_THRESHOLD = 30
 NOISE_KERNEL_SIZE = (2, 2)
 DEFECT_SPOT_THRESHOLD = 60
-RELATIVE_DEFECT_RATIO = 0.001
-FINE_EROSION_ITERATIONS = 3
-FINE_SPOT_THRESHOLD = 35
-FINE_RELATIVE_DEFECT_RATIO = 0.0012
+RELATIVE_DEFECT_RATIO = 0.0008
+FINE_EROSION_ITERATIONS = 1
+FINE_SPOT_THRESHOLD = 20
+FINE_RELATIVE_DEFECT_RATIO = 0.0008
 TEXTURE_STD_THRESHOLD = 15.0
 INNER_EROSION_ITERATIONS = 2
-INNER_SPOT_RATIO_THRESHOLD = 0.6
+INNER_SPOT_RATIO_THRESHOLD = 0.45
 LAB_A_STD_THRESHOLD = 4.0
-BRUCH_SYMMETRY_THRESHOLD = 45
+FARBFEHLER_TEXTURE_MIN_SYMM = 60
+FARBFEHLER_TEXTURE_MIN_SPOT = 30
+FARBFEHLER_LAB_MIN_SPOT = 40
+BRUCH_SYMMETRY_THRESHOLD = 78
+DARK_PERCENTILE = 5
+DARK_DELTA_THRESHOLD = 18
+DARK_MEDIAN_MIN = 80
 SYMMETRY_SENSITIVITY = 3.0
 
 LABEL_PRIORITIES = {
@@ -194,7 +205,7 @@ def analyze_geometry_features(contours, hierarchy):
         "has_object": False, "area": 0, "solidity": 0,
         "num_windows": 0, "has_center_hole": False, "main_contour": None,
         "fragment_count": 0, "convex_area": 0,
-        "window_areas": []  # <--- NEU: Liste für die Flächengrößen
+        "window_areas": [], "outer_count": 0
     }
     
     if not contours: return stats
@@ -218,9 +229,11 @@ def analyze_geometry_features(contours, hierarchy):
             cnt_area = cv2.contourArea(cnt)
 
             # Weitere äußere Konturen deuten auf zusammengeklebte Snacks hin
-            if parent_idx == -1 and i != main_cnt_idx and cnt_area > FRAGMENT_AREA_MIN:
-                stats["fragment_count"] += 1
-                continue
+            if parent_idx == -1:
+                stats["outer_count"] += 1
+                if i != main_cnt_idx and cnt_area > FRAGMENT_AREA_MIN:
+                    stats["fragment_count"] += 1
+                    continue
 
             # Nur direkte Kinder des Hauptobjekts (Löcher)
             if parent_idx == main_cnt_idx:
@@ -285,10 +298,17 @@ def detect_defects(image, spot_threshold=DEFECT_SPOT_THRESHOLD, debug=False):
 
     # 7. Ergebnis
     spot_area = cv2.countNonZero(valid_defects)
-    texture_std = float(np.std(gray[mask_analysis == 255])) if object_area else 0.0
+    object_pixels = gray[mask_analysis == 255]
+    texture_std = float(np.std(object_pixels)) if object_area else 0.0
     lab = cv2.cvtColor(image, cv2.COLOR_BGR2LAB)
     a_channel = lab[:, :, 1]
     a_std = float(np.std(a_channel[mask_analysis == 255])) if object_area else 0.0
+    dark_delta = 0.0
+    median_intensity = 0.0
+    if object_pixels.size > 0:
+        median_intensity = float(np.median(object_pixels))
+        dark_percentile = float(np.percentile(object_pixels, DARK_PERCENTILE))
+        dark_delta = median_intensity - dark_percentile
     inner_mask = mask_analysis
     inner_spot_area = spot_area
     if INNER_EROSION_ITERATIONS > 0:
@@ -331,7 +351,9 @@ def detect_defects(image, spot_threshold=DEFECT_SPOT_THRESHOLD, debug=False):
         "is_defective": is_defective,
         "spot_area": spot_area,
         "texture_std": texture_std,
-        "lab_std": a_std
+        "lab_std": a_std,
+        "dark_delta": dark_delta,
+        "median_intensity": median_intensity
     }
 
 def print_table(headers, rows, indent="  "):
@@ -533,58 +555,105 @@ def sort_dataset_manual_rules(source_data_dir, sorted_data_dir):
             hull_ratio = (geo.get("convex_area", 0) / max(1, geo.get("area", 0))) if geo.get("area") else 0
             window_ratio = (max(areas) / max(1, min(areas))) if areas and min(areas) > 0 else 1
 
+            symmetry_score = 0
+            if len(areas) > 0:
+                mean_a = np.mean(areas)
+                std_a = np.std(areas)
+                cv = std_a / mean_a if mean_a > 0 else 0
+                symmetry_score = max(0, min(100, int(100 * (1 - (cv * SYMMETRY_SENSITIVITY)))))
+
             rest_reason = None
+            rest_strength = 0
             if source_is_anomaly:
+                rest_hints = []
                 if geo["fragment_count"] > 0:
-                    rest_reason = f"Fragmente: {geo['fragment_count']}"
-                elif areas and avg_window < REST_WINDOW_AREA_THRESHOLD and window_ratio > REST_WINDOW_RATIO_THRESHOLD:
-                    rest_reason = f"Fensterverh.: {window_ratio:.1f}"
-                elif hull_ratio > REST_HULL_RATIO_THRESHOLD:
-                    rest_reason = f"Hülle: {hull_ratio:.2f}"
+                    rest_hints.append((3, f"Fragmente: {geo['fragment_count']}"))
+                if geo.get("outer_count", 0) > 1:
+                    strength = 2 if geo["outer_count"] > 2 else 1
+                    rest_hints.append((strength, f"Mehrfachobj.: {geo['outer_count']}"))
+                if hull_ratio >= REST_HULL_STRONG_THRESHOLD:
+                    rest_hints.append((2, f"Hülle: {hull_ratio:.2f}"))
+                elif hull_ratio >= REST_HULL_RATIO_THRESHOLD:
+                    rest_hints.append((1, f"Hülle: {hull_ratio:.2f}"))
+                if areas and avg_window > 0:
+                    if avg_window <= REST_WINDOW_AREA_THRESHOLD and window_ratio >= REST_WINDOW_RATIO_THRESHOLD:
+                        strong = (avg_window <= REST_WINDOW_STRONG_AREA and window_ratio >= REST_WINDOW_RATIO_STRONG)
+                        rest_hints.append((2 if strong else 1, f"Fensterverh.: {window_ratio:.1f}"))
+                    if avg_window <= REST_WINDOW_COMPACT_THRESHOLD:
+                        rest_hints.append((1, f"Fenster klein: {avg_window:.0f}"))
+                    if avg_window >= REST_WINDOW_LARGE_THRESHOLD and window_ratio <= 1.3:
+                        rest_hints.append((1, f"Fenster groß: {avg_window:.0f}"))
+                if rest_hints:
+                    rest_strength, rest_reason = max(rest_hints, key=lambda item: item[0])
+
+            if source_is_anomaly:
+                col_res = detect_defects(image, spot_threshold=DEFECT_SPOT_THRESHOLD)
+            else:
+                col_res = {"is_defective": False, "spot_area": 0, "texture_std": 0, "lab_std": 0, "dark_delta": 0, "median_intensity": 0}
+
+            color_candidate = None
+            if source_is_anomaly:
+                if col_res["is_defective"] and symmetry_score >= FARBFEHLER_TEXTURE_MIN_SYMM:
+                    color_candidate = ("Farbfehler", f"Fleck: {col_res['spot_area']}px")
+                elif (
+                    col_res["spot_area"] >= FARBFEHLER_TEXTURE_MIN_SPOT
+                    and col_res.get("texture_std", 0) > TEXTURE_STD_THRESHOLD
+                    and symmetry_score >= FARBFEHLER_TEXTURE_MIN_SYMM
+                ):
+                    color_candidate = ("Farbfehler", f"Textur: {col_res['texture_std']:.1f}")
+                elif (
+                    col_res["spot_area"] >= FARBFEHLER_LAB_MIN_SPOT
+                    and col_res.get("lab_std", 0) > LAB_A_STD_THRESHOLD
+                    and symmetry_score >= FARBFEHLER_TEXTURE_MIN_SYMM
+                ):
+                    color_candidate = ("Farbfehler", f"Farbe: {col_res['lab_std']:.1f}")
+                elif (
+                    col_res.get("dark_delta", 0) > DARK_DELTA_THRESHOLD
+                    and col_res.get("median_intensity", 0) >= DARK_MEDIAN_MIN
+                    and symmetry_score >= FARBFEHLER_TEXTURE_MIN_SYMM
+                ):
+                    color_candidate = ("Farbfehler", f"Kontrast: {col_res['dark_delta']:.1f}")
 
             if not geo["has_object"]:
                 target_class = "Rest"
                 reason = "Kein Objekt"
-            elif rest_reason:
-                target_class = "Rest"
-                reason = rest_reason
             elif total_holes < 7:
-                target_class = "Bruch"
-                reason = f"Zu wenig Löcher: {total_holes}"
+                if rest_strength >= 2:
+                    target_class = "Rest"
+                    reason = rest_reason or f"Unklare Form ({total_holes})"
+                elif color_candidate and total_holes >= 6:
+                    target_class, reason = color_candidate
+                else:
+                    target_class = "Bruch"
+                    reason = f"Zu wenig Löcher: {total_holes}"
             elif total_holes > 7:
                 target_class = "Rest"
                 reason = f"Zu viele Fragmente: {total_holes}"
             else:
-                if source_is_anomaly:
-                    col_res = detect_defects(image, spot_threshold=DEFECT_SPOT_THRESHOLD)
+                # Starker Rest-Hinweis hat Vorrang vor Farbbewertung
+                if source_is_anomaly and rest_strength >= 2:
+                    target_class = "Rest"
+                    reason = rest_reason or "Starker Resthinweis"
                 else:
-                    col_res = {"is_defective": False, "spot_area": 0, "texture_std": 0, "lab_std": 0}
-                
-                if source_is_anomaly and col_res["is_defective"]:
-                    target_class = "Farbfehler"
-                    reason = f"Fleck: {col_res['spot_area']}px"
-                elif source_is_anomaly and col_res.get("texture_std", 0) > TEXTURE_STD_THRESHOLD:
-                    target_class = "Farbfehler"
-                    reason = f"Textur: {col_res['texture_std']:.1f}"
-                elif source_is_anomaly and col_res["spot_area"] > 5 and col_res.get("lab_std", 0) > LAB_A_STD_THRESHOLD:
-                    target_class = "Farbfehler"
-                    reason = f"Farbe: {col_res['lab_std']:.1f}"
-                else:
-                    # --- ALLES OK -> SYMMETRIE BERECHNEN ---
-                    if target_class == "Normal":
-                        symmetry_score = 0
-                        if len(areas) > 0:
-                            mean_a = np.mean(areas)
-                            std_a = np.std(areas)
-                            cv = std_a / mean_a if mean_a > 0 else 0
-                            symmetry_score = max(0, min(100, int(100 * (1 - (cv * SYMMETRY_SENSITIVITY)))))
+                    classified = False
+                    if color_candidate:
+                        target_class, reason = color_candidate
+                        classified = True
+                    else:
+                        if target_class == "Normal":
+                            file_prefix = f"{symmetry_score:03d}_"
+                            reason = f"Symmetrie: {symmetry_score}/100"
 
-                    if target_class == "Normal" and source_is_anomaly and symmetry_score < BRUCH_SYMMETRY_THRESHOLD:
-                        target_class = "Bruch"
-                        reason = f"Asymmetrie: {symmetry_score}/100"
-                    elif target_class == "Normal":
-                        file_prefix = f"{symmetry_score:03d}_"
-                        reason = f"Symmetrie: {symmetry_score}/100"
+                    if not classified:
+                        if target_class == "Normal" and rest_strength >= 1 and rest_reason:
+                            target_class = "Rest"
+                            reason = rest_reason
+                        elif source_is_anomaly and symmetry_score < BRUCH_SYMMETRY_THRESHOLD:
+                            target_class = "Bruch"
+                            reason = f"Asymmetrie: {symmetry_score}/100"
+                        elif target_class == "Normal":
+                            file_prefix = f"{symmetry_score:03d}_"
+                            reason = f"Symmetrie: {symmetry_score}/100"
 
             # Datei kopieren (mit Prefix nur bei Normal)
             new_filename = f"{file_prefix}{file}"

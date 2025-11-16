@@ -1,0 +1,105 @@
+import cv2
+import numpy as np
+import os # Hinzugefügt, nur um Pfade sauberer zu machen
+
+def test_full_rotational_asymmetry(image_path):
+    """
+    Testet die 6-fache Rotationssymmetrie, indem alle 6 Positionen
+    (0, 60, 120, 180, 240, 300 Grad) verglichen werden.
+    
+    Markiert alle Pixel, die NICHT in allen 6 Rotationen vorhanden sind
+    und gibt den Score (Anzahl dieser Pixel) zurück.
+    """
+    img = cv2.imread(image_path)
+    if img is None:
+        print(f"Fehler: Bild {image_path} nicht gefunden.")
+        return -1 # Gibt -1 als Fehler-Score zurück
+
+    # In Graustufen umwandeln und Maske erstellen (Objekt vs. Hintergrund)
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    _, mask = cv2.threshold(gray, 10, 255, cv2.THRESH_BINARY)
+
+    # 1. Mittelpunkt (Centroid) finden
+    M = cv2.moments(mask)
+    if M["m00"] == 0:
+        print("Kein Objekt gefunden.")
+        return -1
+        
+    cX = int(M["m10"] / M["m00"])
+    cY = int(M["m01"] / M["m00"])
+    (h, w) = img.shape[:2]
+
+    # Wir starten mit der Original-Maske (0 Grad) als "Kern"
+    core_mask = mask.copy()
+
+    print(f"Analysiere {image_path}...")
+    
+    # 2. Schleife durch die 5 Rotationen (60° bis 300°)
+    for i in range(1, 6): # 1, 2, 3, 4, 5
+        angle = i * 60
+        R = cv2.getRotationMatrix2D((cX, cY), angle, 1.0)
+        rotated_mask = cv2.warpAffine(mask, R, (w, h))
+        
+        # Den "Kern" mit jeder Runde kleiner schrumpfen (Schnittmenge)
+        core_mask = cv2.bitwise_and(core_mask, rotated_mask)
+
+    # 3. Asymmetrie-Teile finden
+    # 'asymmetric_parts_mask' sind alle Pixel, die nicht zum "Kern" gehören
+    asymmetric_parts_mask = cv2.subtract(mask, core_mask)
+    
+    # =======================================================
+    # NEU: Score berechnen (Anzahl der "roten Pixel")
+    # =======================================================
+    score = cv2.countNonZero(asymmetric_parts_mask)
+    
+    
+    # =======================================================
+    # KORREKTUR: 4. Asymmetrische Teile ROT MARKIEREN
+    # =======================================================
+    
+    # Wir erstellen eine KOPIE des Originals, um darauf zu malen
+    result_img = img.copy() 
+    
+    # Wir ERSETZEN alle Pixel im Original, die in der Asymmetrie-Maske
+    # sind, durch die Farbe Rot.
+    result_img[asymmetric_parts_mask > 0] = (0, 0, 255) # Rot (BGR)
+    
+    # =======================================================
+    
+    # Score im Bild anzeigen
+    cv2.putText(result_img, f"Asymmetrie-Score: {score}", (10, 30), 
+                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+
+    # (Optional) Zeige die Ergebnisse an
+    cv2.imshow("Original", img)
+    cv2.imshow("Symmetrischer Kern (Schnittmenge)", core_mask)
+    cv2.imshow("Asymmetrische Teile (ROT markiert) + Score", result_img)
+    
+    print("\n-----------------------------------------")
+    print(f"Ergebnis für: {image_path}")
+    print(f"Asymmetrie-Score: {score} (Pixel)")
+    print("Drücke eine beliebige Taste, um das Fenster zu schließen...")
+    print("-----------------------------------------")
+
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+    
+    return score
+
+
+# --- HIER TESTEN ---
+# (Passe die Pfade an, falls sie nicht stimmen)
+
+BASE_PATH = "output/processed"
+
+# Test mit einem "Bruch"-Bild
+# Hier sollten die Bruch-Stellen rot leuchten und der Score HOCH sein
+test_full_rotational_asymmetry(os.path.join(BASE_PATH, "Anomaly", "011.JPG"))
+
+# Test mit einem "Farbfehler"-Bild
+# Hier sollte fast nichts leuchten und der Score NIEDRIG sein
+test_full_rotational_asymmetry(os.path.join(BASE_PATH, "Normal", "035.JPG"))
+
+# Test mit einem "guten" Normal-Bild
+# Hier sollte auch fast nichts leuchten und der Score SEHR NIEDRIG sein
+test_full_rotational_asymmetry(os.path.join(BASE_PATH, "Normal", "140.JPG"))

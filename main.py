@@ -7,62 +7,87 @@ import csv
 # ==========================================
 # ANPASSBARE PARAMETER & VERZEICHNISSE
 # ==========================================
-RAW_DATA_DIR = os.path.join("data", "Images")
-OUTPUT_DIR = "output"
-PROCESSED_DATA_DIR = os.path.join(OUTPUT_DIR, "processed")
-SORTED_DATA_DIR = os.path.join(OUTPUT_DIR, "sorted")
-FALSCH_DIR = os.path.join(SORTED_DATA_DIR, "Falsch")
-ANNOTATION_FILE = os.path.join("data", "image_anno.csv")
-VERBOSE_SORT_OUTPUT = True
+# --- Pfad-Setup (prep_set, sort_run, pred_chk, miss_copy) ---
+RAW_DIR = os.path.join("data", "Images")  # Pfad zur Rohquelle; Ändern = anderer Input; Min/Max: gültiger Ordner.
+OUT_DIR = "output"  # Haupt-Ausgabepfad; Kürzer -> anderer Speicherort; Min/Max: gültiger Pfadstring.
+PROC_DIR = os.path.join(OUT_DIR, "processed")  # Zwischenablage der Preprocessing-Ergebnisse; bei Änderung neue Struktur beachten; Min/Max: gültiger Unterordner.
+SORT_DIR = os.path.join(OUT_DIR, "sorted")  # Sortierausgabe; auf SSD verkürzt Laufzeit; Min/Max: gültiger Unterordner.
+FAIL_DIR = os.path.join(SORT_DIR, "Falsch")  # Ablage für Fehlklassifikationen; Ändern ändert Ziel beim Kopieren; Min/Max: gültiger Unterordner.
+ANNO_FILE = os.path.join("data", "image_anno.csv")  # CSV-Annotationen; anderer Pfad = andere GT-Daten; Min/Max: bestehende Datei.
+SORT_LOG = True  # True = ausführliche Konsolenlogs; False = schneller/leiser; Min False / Max True.
 
-LOWER_GREEN = np.array([35, 40, 30])
-UPPER_GREEN = np.array([85, 255, 255])
-CONTOUR_AREA_MIN = 30000
-WARP_SIZE = (600, 400)
-TARGET_WIDTH = 400
-TARGET_HEIGHT = 400
+# --- Preproc-Pipeline (prep_img, prep_set) ---
+HSV_LO = np.array([35, 40, 30])  # Untere HSV-Grenze für Grünabzug; kleiner = mehr Hintergrund bleibt; größer = Risiko Objektverlust; Range 0–255.
+HSV_HI = np.array([85, 255, 255])  # Obere HSV-Grenze; höher = mehr Falsch-Positives, niedriger = Teile fehlen; Range 0–255.
+CNT_MINA = 30000  # Mindestfläche für Hauptkontur; hoch = ignoriert kleine Snacks, niedrig = mehr Rauschen; Range 5000–60000 px.
+WARP_SZ = (600, 400)  # Warp-Ziel vor Resize; größer = mehr Detail, kleiner = schneller; Range 200–800 px.
+TGT_W = 400  # Endbreite des Warps; höher = mehr Pixel, niedriger = schnellere Analyse; Range 200–600 px.
+TGT_H = 400  # Endhöhe des Warps; analog zu TGT_W; Range 200–600 px.
 
-EPSILON_FACTOR = 0.04
-MIN_HOLE_AREA = 100
-MIN_WINDOW_AREA = 500
-MAX_CENTER_HOLE_AREA = 3000
-FRAGMENT_AREA_MIN = 6000
-REST_WINDOW_AREA_THRESHOLD = 4000
-REST_WINDOW_STRONG_AREA = 3500
-REST_WINDOW_COMPACT_THRESHOLD = 3400
-REST_WINDOW_LARGE_THRESHOLD = 4300
-REST_HULL_RATIO_THRESHOLD = 1.05
-REST_HULL_STRONG_THRESHOLD = 1.08
-REST_WINDOW_RATIO_THRESHOLD = 3.0
-REST_WINDOW_RATIO_STRONG = 4.5
-REST_MULTI_OUTER_SPOT_THRESHOLD = 120
+# --- Geometrie-Features (cnt_hier, geom_feat, sort_run) ---
+EPS_FACT = 0.04  # Approx-Genauigkeit für Konturen; kleiner = mehr Ecken, größer = glatter; Range 0.01–0.1.
+HOLE_MIN = 100  # Kleinste Lochfläche; höher = ignoriert Mini-Löcher, niedriger = mehr Fehlzählungen; Range 10–400 px.
+WIND_MIN = 500  # Mindestfläche für Fenster; höher = filtert kleine Fenster, niedriger = zählt Störungen; Range 200–2000 px.
+CTR_MAXA = 3000  # Maximalfläche des Mittellochs; höher = tolerant bei Dehnung, niedriger = strenger; Range 1500–5000 px.
+FRAG_MIN = 6000  # Mindestfläche, um eine Neben-Kontur als Fragment zu zählen; höher = nur große Bruchstücke, niedriger = mehr False-Positives; Range 2000–12000 px.
+RWA_BASE = 4000  # Schwellwert für kleine Fenster-Durchschnitte; höher = weniger Rest-Hinweise, niedriger = schneller Rest; Range 2500–5000 px.
+RWA_STRG = 3500  # Stärkerer kleiner Fensterbereich; höher = weniger starke Hinweise, niedriger = Rest greift schneller; Range 2000–4500 px.
+RWA_CMP = 3400  # Kompakt-Check für Fenster; höher = erlaubt größere Fenster, niedriger = markiert kompakter; Range 2000–4500 px.
+RWA_LRG = 4300  # Schwelle für große Fenster; höher = seltener Hinweis, niedriger = schneller Rest wegen großer Fenster; Range 3500–6000 px.
+RHL_BASE = 1.05  # Grundschwelle für Hüllfläche; höher = toleranter gegenüber Kanten, niedriger = Rest bei kleinen Schäden; Range 1.0–1.2.
+RHL_STRG = 1.08  # Starker Rest über Hüllratio; höher = weniger starke Signals, niedriger = sensibler; Range 1.02–1.3.
+RWR_BASE = 3.0  # Fensterflächenverhältnis Basisschwelle; höher = nur extreme Unterschiede triggern, niedriger = Rest reagiert schneller; Range 1.5–5.
+RWR_STRG = 4.5  # Starker Fenster-Verhältnis-Check; höher = strenger, niedriger = früh starke Hinweise; Range 2.5–6.
+RMULT_SP = 120  # Spotfläche für Mehrfachobjekt-Bewertung; höher = ignoriert kleinere Flecken, niedriger = reagiert früher; Range 40–250 px.
 
-EROSION_KERNEL_SIZE = (5, 5)
-EROSION_ITERATIONS = 4
-BLACKHAT_KERNEL_SIZE = (15, 15)
-BLACKHAT_CONTRAST_THRESHOLD = 30
-NOISE_KERNEL_SIZE = (2, 2)
-DEFECT_SPOT_THRESHOLD = 60
-RELATIVE_DEFECT_RATIO = 0.0008
-FINE_EROSION_ITERATIONS = 1
-FINE_SPOT_THRESHOLD = 20
-FINE_RELATIVE_DEFECT_RATIO = 0.0008
-TEXTURE_STD_THRESHOLD = 15.0
-INNER_EROSION_ITERATIONS = 2
-INNER_SPOT_RATIO_THRESHOLD = 0.45
-LAB_A_STD_THRESHOLD = 4.0
-FARBFEHLER_TEXTURE_MIN_SYMM = 60
-FARBFEHLER_TEXTURE_MIN_SPOT = 30
-FARBFEHLER_LAB_MIN_SPOT = 40
-FARBFEHLER_STRONG_SPOT = 80
-BRUCH_SYMMETRY_THRESHOLD = 78
-DARK_PERCENTILE = 5
-DARK_DELTA_THRESHOLD = 18
-DARK_MEDIAN_MIN = 80
-DARK_DELTA_SPOT_MIN = 30
-EDGE_DAMAGE_THRESHOLD = 1.05
-EDGE_MAX_SEGMENTS = 14
-SYMMETRY_SENSITIVITY = 3.0
+# --- Farb-/Spotprüfung (spot_det, sort_run) ---
+ERO_KN = (5, 5)  # Kernel für grobe Erosion; größer = mehr Randverlust, kleiner = mehr Rauschen; Range 3–9 px.
+ERO_ITER = 4  # Anzahl grober Erosionen; höher = glatter Rand, niedriger = mehr Kantenrauschen; Range 2–6.
+BKH_KN = (15, 15)  # Kernel für Blackhat; größer = sucht größere Flecken, kleiner = empfindlich auf Rauschen; Range 7–25 px.
+BKH_CON = 30  # Kontrastlimit für Fleckmaske; höher = nur starke Flecken, niedriger = mehr False-Positives; Range 10–60.
+NOI_KN = (2, 2)  # Kernel für Rausch-Öffnung; größer = entfernt auch echte Spots, kleiner = lässt Noise; Range 1–4 px.
+SPT_MIN = 60  # Spotfläche für grobe Defekte; höher = nur große Flecken, niedriger = mehr Meldungen; Range 20–150 px.
+SPT_RAT = 0.0008  # Relativer Fleckenanteil; höher = streng, niedriger = empfindlich; Range 0.0003–0.002.
+FERO_ITR = 1  # Iterationen der Fein-Erosion; höher = kleinerer Innenbereich, niedriger = mehr Hintergrund; Range 0–3.
+SPT_FIN = 20  # Mindestfläche bei Feinprüfung; höher = ignoriert kleine Spots, niedriger = früher Alarm; Range 5–80 px.
+FSPT_RAT = 0.0008  # Relativanteil bei Feinprüfung; höher = strenger, niedriger = empfindlicher; Range 0.0003–0.002.
+TXT_STD = 15.0  # Textur-STD-Grenze; höher = weniger Farbalarme, niedriger = empfindlicher; Range 8–25.
+INER_ITR = 2  # Innen-Erosion für Spotüberprüfung; höher = stärkerer Innenfokus, niedriger = mehr Rand; Range 0–4.
+INSP_RAT = 0.45  # Anteil innerer Spots; höher = strenger, niedriger = auch Randflecken; Range 0.2–0.8.
+LAB_STD = 4.0  # LAB-a Standardabweichung; höher = nur starke Farbstiche, niedriger = frühzeitiger Alarm; Range 2–10.
+COL_SYM = 60  # Symmetrie-Minimum für Farbalarm; höher = verlangt bessere Geometrie, niedriger = erlaubt unsymmetrische Teile; Range 40–90.
+COL_SPT = 30  # Mindestfläche für Textur-Farbcheck; höher = ignoriert kleine Spots, niedriger = rauschig; Range 10–80 px.
+COL_LAB = 40  # Mindestfläche für LAB-Alarm; höher = strenger, niedriger = empfindlicher; Range 20–100 px.
+COL_STR = 80  # Starke Fleckschwelle; höher = nur sehr große Flecken, niedriger = viele harte Hinweise; Range 50–150 px.
+BRK_SYM = 78  # Symmetriewert für Bruch/Rest; höher = mehr Teile als Bruch, niedriger = mehr Rest; Range 60–90.
+DRK_PCT = 5  # Perzentil für Dark-Delta; höher = betrachtet hellere Pixel, niedriger = tiefe Schatten; Range 1–15.
+DRK_DLT = 18  # Mindestrand für Dark-Delta; höher = nur starker Kontrast, niedriger = sensibler; Range 8–30.
+DRK_MED = 80  # Mindestmedian für Dark-Check; höher = nur helle Snacks, niedriger = auch dunkle Snacks; Range 40–120.
+DRK_SPT = 30  # Mindestspotfläche für Dark-Alarm; höher = ignoriert Kleines, niedriger = empfindlich; Range 10–80 px.
+
+# --- Kantenschaden & Symmetrie (sort_run) ---
+EDGE_DMG = 1.05  # Verhältnis Hülle/Perimeter; höher = toleranter, niedriger = früher Bruchalarm; Range 1.0–1.5.
+EDGE_SEG = 14  # Max. Kantensegmente; höher = erlaubt zackigere Formen, niedriger = streng; Range 8–20.
+SYM_SEN = 3.0  # Faktor für Symmetriepenalty; höher = Symmetrie strenger, niedriger = lockerer; Range 1.5–4.5.
+
+# Entscheidungsbaum (Detailfluss):
+#   Level 0 – Feature-Sammlung (Zeilen 559–700, `sort_run`):
+#       Erzeugt `geo` via `geom_feat` (Zeilen 235–292) und Farbmetriken via `spot_det` (Zeilen 294–371).
+#       Setzt Resthinweise (`rest_hints`) über `FRAG_MIN`, `RHL_*`, `RWA_*`, `RWR_*`, `RMULT_SP` und berechnet Symmetrie (`SYM_SEN`).
+#       Farbkanal greift nur bei Anomalien: `spot_det` liefert `spot_area`, `texture_std`, `lab_std`, `dark_delta`; Schwellwerte `SPT_*`, `COL_*`, `TXT_STD`, `LAB_STD`, `DRK_*`.
+#   Level 1 – Guards & Objekt-Existenz (Zeilen 702–709):
+#       Falls `geo["has_object"]` False → Klasse „Rest“ („Kein Objekt“).
+#       Setzt `total_holes = geo["num_windows"] + center`, Basis für Level 2.
+#   Level 2A – Zu wenige Öffnungen (Zeilen 709–720):
+#       Wenn `total_holes < 7`: Standard „Bruch“ (`reason` = Lochzahl), außer starke Farbe (`color_strength >= 2`) oder starker Resthinweis (`rest_strength >= 2`).
+#   Level 2B – Zu viele Öffnungen (Zeilen 721–724):
+#       Wenn `total_holes > 7`: direkt „Rest“ wegen Fragmentierung (`FRAG_MIN`, `RMULT_SP` spiegeln Ursache im `reason`).
+#   Level 3 – Genau 7 Öffnungen (Zeilen 725–752):
+#       (a) Rest-Hardhit: `rest_strength >= 2` → „Rest“ (Ursprung `RHL_*`, `RWA_*`, `RWR_*`, Mehrfachkonturen).
+#       (b) Starke Farbe: `color_strength >= 2` → „Farbfehler“ (stammt aus `spot_det`-Schwellen `COL_STR`, `COL_SPT`, `COL_LAB`).
+#       (c) Kantenbruch: `edge_damage >= EDGE_DMG` oder `edge_segments >= EDGE_SEG` → „Bruch“.
+#       (d) Weiche Farbe: `color_candidate` bei `rest_strength <= 1` -> „Farbfehler“.
+#       (e) Symmetrie-Fallback: Wenn nichts anderes zieht, nutzt `symmetry_score` (berechnet via `SYM_SEN`, `BRK_SYM`) um zwischen „Normal“, „Bruch“ oder „Rest“ zu unterscheiden.
 
 LABEL_PRIORITIES = {
     "normal": 0,  # Normalzustand hat höchste Priorität
@@ -99,7 +124,7 @@ CLASS_DESCRIPTIONS = {
 # TEIL 1: BILDVORVERARBEITUNG (SEGMENTIERUNG)
 # ==========================================
 
-def run_preprocessing(image, result):
+def prep_img(image, result):
     """Entfernt den grünen Hintergrund, schneidet die größte Kontur aus, verzerrt sie auf eine Standardgröße und legt Ergebnis sowie Debug-Infos im Result-Dict ab."""
     image_copy = image.copy()
     image_work = image.copy() # Arbeitskopie für Maskierung
@@ -108,7 +133,7 @@ def run_preprocessing(image, result):
     hsv = cv2.cvtColor(image_copy, cv2.COLOR_BGR2HSV)
     
     # Grün-Definition für Hintergrund (Anpassbar je nach Licht)
-    mask_green = cv2.inRange(hsv, LOWER_GREEN, UPPER_GREEN)
+    mask_green = cv2.inRange(hsv, HSV_LO, HSV_HI)
     mask_object = cv2.bitwise_not(mask_green) # Objekt ist Nicht-Grün
     
     image_work = cv2.bitwise_and(image_work, image_work, mask=mask_object)
@@ -120,7 +145,7 @@ def run_preprocessing(image, result):
     processed = False
     for ele in contours:
         # Nur große Objekte beachten (Filterung von Rauschen)
-        if cv2.contourArea(ele) > CONTOUR_AREA_MIN:
+        if cv2.contourArea(ele) > CNT_MINA:
             rect = cv2.minAreaRect(ele)
             
             # Querformat erzwingen (Winkel und Dimensionen tauschen)
@@ -139,7 +164,7 @@ def run_preprocessing(image, result):
             image_work[mask == 0] = (0, 0, 0)
 
             # Perspektivische Transformation (Warp)
-            size = WARP_SIZE
+            size = WARP_SZ
             # Ziel-Koordinaten für den Warp
             dst_pts = np.array([[0, size[1]-1], [0, 0], [size[0]-1, 0], [size[0]-1, size[1]-1]], dtype="float32")
             
@@ -150,22 +175,22 @@ def run_preprocessing(image, result):
             M = cv2.getPerspectiveTransform(boxf.astype("float32"), dst_pts)
             
             warped = cv2.warpPerspective(image_work, M, size, cv2.INTER_CUBIC)
-            warped = cv2.resize(warped, (TARGET_WIDTH, TARGET_HEIGHT), interpolation=cv2.INTER_CUBIC)
+            warped = cv2.resize(warped, (TGT_W, TGT_H), interpolation=cv2.INTER_CUBIC)
 
             result.append({"name": "Result", "data": warped})
             processed = True
             
     return processed
 
-def prepare_dataset(source_dir, target_dir):
-    """Bearbeitet alle Rohbilder nacheinander, ruft jeweils `run_preprocessing` auf und sorgt mit Fortschrittsanzeige sowie Rückgabewerten für einen sauberen processed-Ordner."""
+def prep_set(source_dir, target_dir):
+    """Bearbeitet alle Rohbilder nacheinander, ruft jeweils `prep_img` auf und sorgt mit Fortschrittsanzeige sowie Rückgabewerten für einen sauberen processed-Ordner."""
     """Liest Bilder ein, segmentiert sie und speichert sie in target_dir."""
     
     if os.path.exists(target_dir):
         shutil.rmtree(target_dir)
     os.makedirs(target_dir)
 
-    image_files = collect_image_files(source_dir)
+    image_files = img_list(source_dir)
     total_files = len(image_files)
     if total_files == 0:
         print(f"Keine Bilder in '{source_dir}' gefunden.")
@@ -180,7 +205,7 @@ def prepare_dataset(source_dir, target_dir):
         
         if image is not None:
             res = []
-            has_result = run_preprocessing(image, res)
+            has_result = prep_img(image, res)
             
             if has_result:
                 class_name = os.path.basename(root)
@@ -194,7 +219,7 @@ def prepare_dataset(source_dir, target_dir):
                     if item["name"] == "Result":
                         cv2.imwrite(os.path.join(save_path, name), item["data"])
 
-        print_progress("  Segmentierung", idx, total_files)
+        prog_bar("  Segmentierung", idx, total_files)
 
     print("\nSegmentierung abgeschlossen.")
 
@@ -202,13 +227,13 @@ def prepare_dataset(source_dir, target_dir):
 # TEIL 2: QUALITÄTSKONTROLLE & SORTIERUNG
 # ==========================================
 
-def get_contours_hierarchy(image):
+def cnt_hier(image):
     """Liefert alle Konturen samt Hierarchie eines binären Bildes und bildet die Grundlage für die spätere Fenster- und Fragmentzählung."""
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     _, thresh = cv2.threshold(gray, 10, 255, cv2.THRESH_BINARY)
     return cv2.findContours(thresh, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
 
-def analyze_geometry_features(contours, hierarchy):
+def geom_feat(contours, hierarchy):
     """Fasst die Geometrie der Hauptkontur zusammen: zählt Fenster/Zentrum, erkennt Fragmente und sammelt Flächen- sowie Kanteneigenschaften für den Entscheidungsbaum."""
     stats = {
         "has_object": False, "area": 0, "solidity": 0,
@@ -232,11 +257,11 @@ def analyze_geometry_features(contours, hierarchy):
     hull_peri = cv2.arcLength(hull, True)
     main_peri = cv2.arcLength(main_cnt, True)
     stats["edge_damage"] = (hull_peri / max(1.0, main_peri)) if main_peri > 0 else 0.0
-    approx = cv2.approxPolyDP(main_cnt, EPSILON_FACTOR * main_peri, True)
+    approx = cv2.approxPolyDP(main_cnt, EPS_FACT * main_peri, True)
     stats["edge_segments"] = len(approx)
 
     # Löcher analysieren
-    epsilon_factor = EPSILON_FACTOR
+    epsilon_factor = EPS_FACT
     if hierarchy is not None:
         for i, cnt in enumerate(contours):
             parent_idx = hierarchy[0][i][3]
@@ -245,29 +270,29 @@ def analyze_geometry_features(contours, hierarchy):
             # Weitere äußere Konturen deuten auf zusammengeklebte Snacks hin
             if parent_idx == -1:
                 stats["outer_count"] += 1
-                if i != main_cnt_idx and cnt_area > FRAGMENT_AREA_MIN:
+                if i != main_cnt_idx and cnt_area > FRAG_MIN:
                     stats["fragment_count"] += 1
                     continue
 
             # Nur direkte Kinder des Hauptobjekts (Löcher)
             if parent_idx == main_cnt_idx:
                 hole_area = cv2.contourArea(cnt)
-                if hole_area < MIN_HOLE_AREA: continue 
+                if hole_area < HOLE_MIN: continue 
 
                 peri = cv2.arcLength(cnt, True)
                 approx = cv2.approxPolyDP(cnt, epsilon_factor * peri, True)
                 corners = len(approx)
 
                 # Unterscheidung Fenster vs. Mittelloch
-                if 3 <= corners <= 5 and hole_area > MIN_WINDOW_AREA:
+                if 3 <= corners <= 5 and hole_area > WIND_MIN:
                     stats["num_windows"] += 1
                     stats["window_areas"].append(hole_area) # <--- NEU: Fläche speichern
-                elif corners > 5 and hole_area < MAX_CENTER_HOLE_AREA:
+                elif corners > 5 and hole_area < CTR_MAXA:
                     stats["has_center_hole"] = True
                     
     return stats
 
-def detect_defects(image, spot_threshold=DEFECT_SPOT_THRESHOLD, debug=False):
+def spot_det(image, spot_threshold=SPT_MIN, debug=False):
     """Führt die Farb-/Texturpipeline (Maskierung, Erosion, Black-Hat, Statistik) aus und stellt die resultierenden Defektmetriken für den Entscheidungsbaum bereit."""
     # 1. Konvertierung in Graustufen
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
@@ -280,8 +305,8 @@ def detect_defects(image, spot_threshold=DEFECT_SPOT_THRESHOLD, debug=False):
     # WICHTIG: Wir müssen den Rand stark verkleinern.
     # Der Übergang vom hellen Snack zum schwarzen Hintergrund ist eine "riesige Kante",
     # die wir ignorieren müssen.
-    kernel_erode = np.ones(EROSION_KERNEL_SIZE, np.uint8)
-    mask_analysis = cv2.erode(mask_obj, kernel_erode, iterations=EROSION_ITERATIONS) 
+    kernel_erode = np.ones(ERO_KN, np.uint8)
+    mask_analysis = cv2.erode(mask_obj, kernel_erode, iterations=ERO_ITER) 
     object_area = cv2.countNonZero(mask_analysis)
     # Falls zu viel vom Objekt verschwindet: iterations verringern (z.B. 3)
 
@@ -289,7 +314,7 @@ def detect_defects(image, spot_threshold=DEFECT_SPOT_THRESHOLD, debug=False):
     # Wir definieren eine Größe für die Flecken, die wir suchen.
     # Kernel-Größe (15, 15) bedeutet: "Suche Dinge, die kleiner sind als ca. 15 Pixel"
     # Alles was größer ist (wie Schattenverläufe), wird ignoriert.
-    kernel_morph = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, BLACKHAT_KERNEL_SIZE)
+    kernel_morph = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, BKH_KN)
     blackhat_img = cv2.morphologyEx(gray, cv2.MORPH_BLACKHAT, kernel_morph)
 
     # Das blackhat_img ist jetzt fast schwarz, nur die Flecken leuchten weiß hervor.
@@ -298,14 +323,14 @@ def detect_defects(image, spot_threshold=DEFECT_SPOT_THRESHOLD, debug=False):
     # 5. Schwellenwert auf den Kontrast
     # Hier definieren wir: "Der Fleck muss mindestens 30 Helligkeitsstufen dunkler 
     # sein als seine direkte Umgebung".
-    contrast_threshold = BLACKHAT_CONTRAST_THRESHOLD 
+    contrast_threshold = BKH_CON 
     _, mask_defects = cv2.threshold(blackhat_img, contrast_threshold, 255, cv2.THRESH_BINARY)
 
     # 6. Nur Defekte IM Objekt betrachten
     valid_defects = cv2.bitwise_and(mask_defects, mask_defects, mask=mask_analysis)
     
     # (Optional) Rauschen entfernen (Punkte kleiner als 2px weg)
-    valid_defects = cv2.morphologyEx(valid_defects, cv2.MORPH_OPEN, np.ones(NOISE_KERNEL_SIZE, np.uint8))
+    valid_defects = cv2.morphologyEx(valid_defects, cv2.MORPH_OPEN, np.ones(NOI_KN, np.uint8))
 
     # 7. Ergebnis
     spot_area = cv2.countNonZero(valid_defects)
@@ -318,37 +343,37 @@ def detect_defects(image, spot_threshold=DEFECT_SPOT_THRESHOLD, debug=False):
     median_intensity = 0.0
     if object_pixels.size > 0:
         median_intensity = float(np.median(object_pixels))
-        dark_percentile = float(np.percentile(object_pixels, DARK_PERCENTILE))
+        dark_percentile = float(np.percentile(object_pixels, DRK_PCT))
         dark_delta = median_intensity - dark_percentile
     inner_mask = mask_analysis
     inner_spot_area = spot_area
-    if INNER_EROSION_ITERATIONS > 0:
-        inner_mask = cv2.erode(mask_analysis, kernel_erode, iterations=INNER_EROSION_ITERATIONS)
+    if INER_ITR > 0:
+        inner_mask = cv2.erode(mask_analysis, kernel_erode, iterations=INER_ITR)
         inner_valid = cv2.bitwise_and(valid_defects, valid_defects, mask=inner_mask)
         inner_spot_area = cv2.countNonZero(inner_valid)
 
     ratio = spot_area / max(1, object_area)
-    meets_ratio = (ratio >= RELATIVE_DEFECT_RATIO) if RELATIVE_DEFECT_RATIO > 0 else True
+    meets_ratio = (ratio >= SPT_RAT) if SPT_RAT > 0 else True
     inner_ratio = inner_spot_area / max(1, spot_area)
-    meets_inner = (inner_ratio >= INNER_SPOT_RATIO_THRESHOLD) if spot_area > 0 else False
+    meets_inner = (inner_ratio >= INSP_RAT) if spot_area > 0 else False
     is_defective = spot_area > spot_threshold and meets_ratio and meets_inner
 
-    if not is_defective and FINE_EROSION_ITERATIONS > 0:
-        mask_fine = cv2.erode(mask_obj, kernel_erode, iterations=FINE_EROSION_ITERATIONS)
+    if not is_defective and FERO_ITR > 0:
+        mask_fine = cv2.erode(mask_obj, kernel_erode, iterations=FERO_ITR)
         fine_area_obj = cv2.countNonZero(mask_fine)
         valid_fine = cv2.bitwise_and(mask_defects, mask_defects, mask=mask_fine)
-        valid_fine = cv2.morphologyEx(valid_fine, cv2.MORPH_OPEN, np.ones(NOISE_KERNEL_SIZE, np.uint8))
+        valid_fine = cv2.morphologyEx(valid_fine, cv2.MORPH_OPEN, np.ones(NOI_KN, np.uint8))
         fine_spot_area = cv2.countNonZero(valid_fine)
         fine_ratio = fine_spot_area / max(1, fine_area_obj)
-        meets_fine_ratio = (fine_ratio >= FINE_RELATIVE_DEFECT_RATIO) if FINE_RELATIVE_DEFECT_RATIO > 0 else True
+        meets_fine_ratio = (fine_ratio >= FSPT_RAT) if FSPT_RAT > 0 else True
         fine_inner_area = fine_spot_area
-        if INNER_EROSION_ITERATIONS > 0:
-            fine_inner_mask = cv2.erode(mask_fine, kernel_erode, iterations=INNER_EROSION_ITERATIONS)
+        if INER_ITR > 0:
+            fine_inner_mask = cv2.erode(mask_fine, kernel_erode, iterations=INER_ITR)
             fine_inner_valid = cv2.bitwise_and(valid_fine, valid_fine, mask=fine_inner_mask)
             fine_inner_area = cv2.countNonZero(fine_inner_valid)
         fine_inner_ratio = fine_inner_area / max(1, fine_spot_area) if fine_spot_area > 0 else 0
-        meets_fine_inner = (fine_inner_ratio >= INNER_SPOT_RATIO_THRESHOLD) if fine_spot_area > 0 else False
-        if fine_spot_area > FINE_SPOT_THRESHOLD and meets_fine_ratio and meets_fine_inner:
+        meets_fine_inner = (fine_inner_ratio >= INSP_RAT) if fine_spot_area > 0 else False
+        if fine_spot_area > SPT_FIN and meets_fine_ratio and meets_fine_inner:
             is_defective = True
             spot_area = fine_spot_area
 
@@ -367,7 +392,7 @@ def detect_defects(image, spot_threshold=DEFECT_SPOT_THRESHOLD, debug=False):
         "median_intensity": median_intensity
     }
 
-def print_table(headers, rows, indent="  "):
+def tbl_show(headers, rows, indent="  "):
     """Gibt eine einfache Tabelle mit fester Spaltenbreite aus, damit Zusammenfassungen im Terminal gut lesbar bleiben."""
     widths = [len(header) for header in headers]
     for row in rows:
@@ -381,7 +406,7 @@ def print_table(headers, rows, indent="  "):
         print(indent + " | ".join(row[i].ljust(widths[i]) for i in range(len(row))))
     print()
 
-def print_progress(prefix, current, total, bar_length=30):
+def prog_bar(prefix, current, total, bar_length=30):
     """Zeigt während der Vorverarbeitung einen Fortschrittsbalken im Terminal an."""
     if total <= 0:
         return
@@ -391,7 +416,7 @@ def print_progress(prefix, current, total, bar_length=30):
     percent = ratio * 100
     print(f"\r{prefix} [{bar}] {percent:5.1f}% ({current}/{total})", end="", flush=True)
 
-def collect_image_files(source_dir):
+def img_list(source_dir):
     """Listet rekursiv alle Bilddateien eines Quellordners auf."""
     image_files = []
     for root, dirs, files in os.walk(source_dir):
@@ -400,7 +425,7 @@ def collect_image_files(source_dir):
                 image_files.append((root, name))
     return image_files
 
-def describe_priority_chain():
+def prio_map():
     """Erstellt einen lesbaren String, der die Priorisierungskette aus `LABEL_PRIORITIES` widerspiegelt."""
     class_priority = {}
     for label, prio in LABEL_PRIORITIES.items():
@@ -412,7 +437,7 @@ def describe_priority_chain():
     ordered = [name for name, _ in sorted(class_priority.items(), key=lambda item: item[1])]
     return " > ".join(ordered)
 
-def normalize_relative_path(path):
+def path_rel(path):
     """Überführt beliebige Pfadangaben in das einheitliche Relative-Format (Data/Images...), das die Annotationen verwenden."""
     if not path:
         return ""
@@ -422,7 +447,7 @@ def normalize_relative_path(path):
         normalized = normalized.split(marker, 1)[1]
     return normalized.lstrip("/")
 
-def resolve_priority_label(raw_label):
+def label_map(raw_label):
     """Zerlegt einen (ggf. komma-separierten) Labelstring und liefert das Label mit der höchsten Priorität zurück."""
     if not raw_label:
         return None
@@ -432,7 +457,7 @@ def resolve_priority_label(raw_label):
     candidates.sort(key=lambda lbl: LABEL_PRIORITIES.get(lbl, 100))
     return candidates[0]
 
-def load_annotations(annotation_file):
+def anno_load(annotation_file):
     """Liest die CSV-Annotationen ein und mappt jeden relativen Pfad auf eine der vier Zielklassen."""
     annotations = {}
     if not os.path.exists(annotation_file):
@@ -442,20 +467,20 @@ def load_annotations(annotation_file):
     with open(annotation_file, newline="", encoding="utf-8") as csv_file:
         reader = csv.DictReader(csv_file)
         for row in reader:
-            rel_path = normalize_relative_path(row.get("image", ""))
+            rel_path = path_rel(row.get("image", ""))
             if not rel_path:
                 continue
-            base_label = resolve_priority_label(row.get("label", ""))
+            base_label = label_map(row.get("label", ""))
             if not base_label:
                 continue
             annotations[rel_path] = LABEL_CLASS_MAP.get(base_label, "Rest")
 
     return annotations
 
-def copy_misclassified(pred_entry, expected_label, falsch_dir):
+def miss_copy(pred_entry, expected_label, falsch_dir):
     """Kopiert ein fehlklassifiziertes Bild in den Prüfordner und schreibt Ground-Truth sowie Prognose in den Dateinamen."""
     os.makedirs(falsch_dir, exist_ok=True)
-    rel_name = normalize_relative_path(pred_entry.get("relative_path", ""))
+    rel_name = path_rel(pred_entry.get("relative_path", ""))
     if not rel_name:
         rel_name = os.path.basename(pred_entry["source_path"])
     rel_name = rel_name.replace("/", "_")
@@ -466,7 +491,7 @@ def copy_misclassified(pred_entry, expected_label, falsch_dir):
     dest_path = os.path.join(falsch_dir, new_name)
     shutil.copy(pred_entry["source_path"], dest_path)
 
-def validate_predictions(predictions, annotations, falsch_dir):
+def pred_chk(predictions, annotations, falsch_dir):
     """Vergleicht Vorhersagen mit Annotationen, druckt Zusammenfassungen und kopiert jede Abweichung für die manuelle Kontrolle."""
     if not annotations:
         print("\nKeine Annotationen geladen -> Validierung übersprungen.")
@@ -481,7 +506,7 @@ def validate_predictions(predictions, annotations, falsch_dir):
     per_class = {}
 
     for pred in predictions:
-        rel_path = normalize_relative_path(pred.get("relative_path", ""))
+        rel_path = path_rel(pred.get("relative_path", ""))
         expected = annotations.get(rel_path)
         if expected is None:
             continue
@@ -512,8 +537,8 @@ def validate_predictions(predictions, annotations, falsch_dir):
     ]
     if skipped:
         summary_rows.append(["Ohne passende Annotation", str(skipped)])
-    print_table(summary_headers, summary_rows)
-    chain = describe_priority_chain()
+    tbl_show(summary_headers, summary_rows)
+    chain = prio_map()
     if chain:
         print(f"Priorisierung (höchste Priorität links): {chain}")
         print()
@@ -526,13 +551,13 @@ def validate_predictions(predictions, annotations, falsch_dir):
             stats = per_class[cls_name]
             acc_cls = (stats["correct"] / stats["total"]) * 100 if stats["total"] else 0.0
             rows.append([cls_name, str(stats["total"]), str(stats["correct"]), f"{acc_cls:.2f}"])
-        print_table(headers, rows)
+        tbl_show(headers, rows)
 
     if mismatches:
         for pred, expected in mismatches:
-            copy_misclassified(pred, expected, falsch_dir)
+            miss_copy(pred, expected, falsch_dir)
 
-def sort_dataset_manual_rules(source_data_dir, sorted_data_dir):
+def sort_run(source_data_dir, sorted_data_dir):
     """Steuert die komplette Klassifikationspipeline (Feature-Ermittlung und Entscheidungsbaum) und spiegelt das Ergebnis nach `output/sorted`."""
     print("\nStarte Sortierung und Symmetrie-Berechnung...")
     CLASSES = ["Normal", "Bruch", "Farbfehler", "Rest"]
@@ -554,10 +579,10 @@ def sort_dataset_manual_rules(source_data_dir, sorted_data_dir):
             image = cv2.imread(img_path)
             if image is None: continue
 
-            rel_path = normalize_relative_path(os.path.relpath(img_path, source_data_dir))
+            rel_path = path_rel(os.path.relpath(img_path, source_data_dir))
 
-            contours, hierarchy = get_contours_hierarchy(image)
-            geo = analyze_geometry_features(contours, hierarchy)
+            contours, hierarchy = cnt_hier(image)
+            geo = geom_feat(contours, hierarchy)
             
             target_class = "Normal"
             reason = "OK"
@@ -579,7 +604,7 @@ def sort_dataset_manual_rules(source_data_dir, sorted_data_dir):
                 mean_a = np.mean(areas)
                 std_a = np.std(areas)
                 cv = std_a / mean_a if mean_a > 0 else 0
-                symmetry_score = max(0, min(100, int(100 * (1 - (cv * SYMMETRY_SENSITIVITY)))))
+                symmetry_score = max(0, min(100, int(100 * (1 - (cv * SYM_SEN)))))
 
             rest_reason = None
             rest_strength = 0
@@ -596,20 +621,20 @@ def sort_dataset_manual_rules(source_data_dir, sorted_data_dir):
                     rest_hints.append((strength, f"Mehrfachobj.: {geo['outer_count']}"))
                     rest_multi_hint = True
                     rest_structural_hint = True
-                if hull_ratio >= REST_HULL_STRONG_THRESHOLD:
+                if hull_ratio >= RHL_STRG:
                     rest_hints.append((2, f"Hülle: {hull_ratio:.2f}"))
                     rest_structural_hint = True
-                elif hull_ratio >= REST_HULL_RATIO_THRESHOLD:
+                elif hull_ratio >= RHL_BASE:
                     rest_hints.append((1, f"Hülle: {hull_ratio:.2f}"))
                 if areas and avg_window > 0:
-                    if avg_window <= REST_WINDOW_AREA_THRESHOLD and window_ratio >= REST_WINDOW_RATIO_THRESHOLD:
-                        strong = (avg_window <= REST_WINDOW_STRONG_AREA and window_ratio >= REST_WINDOW_RATIO_STRONG)
+                    if avg_window <= RWA_BASE and window_ratio >= RWR_BASE:
+                        strong = (avg_window <= RWA_STRG and window_ratio >= RWR_STRG)
                         rest_hints.append((2 if strong else 1, f"Fensterverh.: {window_ratio:.1f}"))
                         rest_window_hint = True
-                    if avg_window <= REST_WINDOW_COMPACT_THRESHOLD:
+                    if avg_window <= RWA_CMP:
                         rest_hints.append((1, f"Fenster klein: {avg_window:.0f}"))
                         rest_window_hint = True
-                    if avg_window >= REST_WINDOW_LARGE_THRESHOLD and window_ratio <= 1.3:
+                    if avg_window >= RWA_LRG and window_ratio <= 1.3:
                         rest_hints.append((1, f"Fenster groß: {avg_window:.0f}"))
                         rest_window_hint = True
                 if rest_hints:
@@ -621,7 +646,7 @@ def sort_dataset_manual_rules(source_data_dir, sorted_data_dir):
             # === Farbanalyse: erzeugt "color_candidate" mit Stärke 0–2 ===
             # Stärke 2 = harter Hinweis (z.B. große Fleckfläche), Stärke 1 = weiche Hinweise (Textur, LAB, Dark Delta).
             if source_is_anomaly:
-                col_res = detect_defects(image, spot_threshold=DEFECT_SPOT_THRESHOLD)
+                col_res = spot_det(image, spot_threshold=SPT_MIN)
             else:
                 col_res = {"is_defective": False, "spot_area": 0, "texture_std": 0, "lab_std": 0, "dark_delta": 0, "median_intensity": 0}
 
@@ -637,26 +662,26 @@ def sort_dataset_manual_rules(source_data_dir, sorted_data_dir):
                 if col_res["is_defective"]:
                     assign_color(f"Fleck: {col_res['spot_area']}px", 2)
                 if (
-                    col_res["spot_area"] >= FARBFEHLER_STRONG_SPOT
+                    col_res["spot_area"] >= COL_STR
                 ):
                     assign_color(f"Fleck: {col_res['spot_area']}px", 2)
                 if (
-                    col_res["spot_area"] >= FARBFEHLER_TEXTURE_MIN_SPOT
-                    and col_res.get("texture_std", 0) > TEXTURE_STD_THRESHOLD
-                    and symmetry_score >= FARBFEHLER_TEXTURE_MIN_SYMM
+                    col_res["spot_area"] >= COL_SPT
+                    and col_res.get("texture_std", 0) > TXT_STD
+                    and symmetry_score >= COL_SYM
                 ):
                     assign_color(f"Textur: {col_res['texture_std']:.1f}", 1)
                 if (
-                    col_res["spot_area"] >= FARBFEHLER_LAB_MIN_SPOT
-                    and col_res.get("lab_std", 0) > LAB_A_STD_THRESHOLD
-                    and symmetry_score >= FARBFEHLER_TEXTURE_MIN_SYMM
+                    col_res["spot_area"] >= COL_LAB
+                    and col_res.get("lab_std", 0) > LAB_STD
+                    and symmetry_score >= COL_SYM
                 ):
                     assign_color(f"Farbe: {col_res['lab_std']:.1f}", 1)
                 if (
-                    col_res.get("dark_delta", 0) > DARK_DELTA_THRESHOLD
-                    and col_res.get("median_intensity", 0) >= DARK_MEDIAN_MIN
-                    and col_res.get("spot_area", 0) >= DARK_DELTA_SPOT_MIN
-                    and symmetry_score >= FARBFEHLER_TEXTURE_MIN_SYMM
+                    col_res.get("dark_delta", 0) > DRK_DLT
+                    and col_res.get("median_intensity", 0) >= DRK_MED
+                    and col_res.get("spot_area", 0) >= DRK_SPT
+                    and symmetry_score >= COL_SYM
                 ):
                     assign_color(f"Kontrast: {col_res['dark_delta']:.1f}", 1)
 
@@ -666,7 +691,7 @@ def sort_dataset_manual_rules(source_data_dir, sorted_data_dir):
             multi_outer_spot = (
                 source_is_anomaly
                 and geo.get("outer_count", 0) > 1
-                and col_res.get("spot_area", 0) >= REST_MULTI_OUTER_SPOT_THRESHOLD
+                and col_res.get("spot_area", 0) >= RMULT_SP
             )
             if multi_outer_spot:
                 rest_strength = max(rest_strength, 2)
@@ -713,7 +738,7 @@ def sort_dataset_manual_rules(source_data_dir, sorted_data_dir):
                     if color_candidate and (color_strength >= 2 or rest_strength <= 1):
                         target_class, reason = color_candidate
                         classified = True
-                    if not classified and (edge_damage >= EDGE_DAMAGE_THRESHOLD or edge_segments >= EDGE_MAX_SEGMENTS) and color_strength < 2:
+                    if not classified and (edge_damage >= EDGE_DMG or edge_segments >= EDGE_SEG) and color_strength < 2:
                         target_class = "Bruch"
                         reason = f"Kante: {edge_damage:.2f}"
                         classified = True
@@ -729,7 +754,7 @@ def sort_dataset_manual_rules(source_data_dir, sorted_data_dir):
                         if target_class == "Normal" and rest_strength >= 1 and rest_reason:
                             target_class = "Rest"
                             reason = rest_reason
-                        elif source_is_anomaly and symmetry_score < BRUCH_SYMMETRY_THRESHOLD:
+                        elif source_is_anomaly and symmetry_score < BRK_SYM:
                             target_class = "Bruch"
                             reason = f"Asymmetrie: {symmetry_score}/100"
                         elif target_class == "Normal":
@@ -743,7 +768,7 @@ def sort_dataset_manual_rules(source_data_dir, sorted_data_dir):
             
             stats_counter[target_class] += 1
             reason_counter[target_class][reason] = reason_counter[target_class].get(reason, 0) + 1
-            if VERBOSE_SORT_OUTPUT:
+            if SORT_LOG:
                 rel_dest = os.path.relpath(dest_path, sorted_data_dir).replace("\\", "/")
                 print(f"[{target_class}] {new_filename} | Grund: {reason} | Ziel: {rel_dest}")
             
@@ -769,7 +794,7 @@ def sort_dataset_manual_rules(source_data_dir, sorted_data_dir):
             top_reason, top_count = max(reason_counter[cls].items(), key=lambda kv: kv[1])
             reason_text = f"{top_reason} ({top_count}x)"
         rows.append([cls, str(amount), f"{share:.1f}", desc, reason_text])
-    print_table(headers, rows)
+    tbl_show(headers, rows)
 
     return predictions
 
@@ -780,20 +805,21 @@ def sort_dataset_manual_rules(source_data_dir, sorted_data_dir):
 # KORREKTUR: __name__ und __main__ (doppelte Unterstriche!)
 if __name__ == '__main__':
     
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    os.makedirs(OUT_DIR, exist_ok=True)
 
     # 1. VORVERARBEITUNG
     # Prüfen ob Rohdaten da sind
-    if os.path.exists(RAW_DATA_DIR):
+    if os.path.exists(RAW_DIR):
         # Vorverarbeitung starten
-        prepare_dataset(RAW_DATA_DIR, PROCESSED_DATA_DIR)
+        prep_set(RAW_DIR, PROC_DIR)
         
         # 2. SORTIERUNG
-        if os.path.exists(PROCESSED_DATA_DIR):
+        if os.path.exists(PROC_DIR):
             # KORREKTUR: Hier den richtigen Funktionsnamen aufrufen!
-            predictions = sort_dataset_manual_rules(PROCESSED_DATA_DIR, SORTED_DATA_DIR)
-            annotations = load_annotations(ANNOTATION_FILE)
-            validate_predictions(predictions, annotations, FALSCH_DIR)
+            predictions = sort_run(PROC_DIR, SORT_DIR)
+            annotations = anno_load(ANNO_FILE)
+            pred_chk(predictions, annotations, FAIL_DIR)
 
     else:
-        print(f"Fehler: Quellordner '{RAW_DATA_DIR}' nicht gefunden! Bitte Ordner erstellen und Bilder hineinlegen.")
+        print(f"Fehler: Quellordner '{RAW_DIR}' nicht gefunden! Bitte Ordner erstellen und Bilder hineinlegen.")
+

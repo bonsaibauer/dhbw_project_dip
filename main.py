@@ -100,6 +100,7 @@ CLASS_DESCRIPTIONS = {
 # ==========================================
 
 def run_preprocessing(image, result):
+    """Entfernt den grünen Hintergrund, schneidet die größte Kontur aus, verzerrt sie auf eine Standardgröße und legt Ergebnis sowie Debug-Infos im Result-Dict ab."""
     image_copy = image.copy()
     image_work = image.copy() # Arbeitskopie für Maskierung
 
@@ -157,6 +158,7 @@ def run_preprocessing(image, result):
     return processed
 
 def prepare_dataset(source_dir, target_dir):
+    """Bearbeitet alle Rohbilder nacheinander, ruft jeweils `run_preprocessing` auf und sorgt mit Fortschrittsanzeige sowie Rückgabewerten für einen sauberen processed-Ordner."""
     """Liest Bilder ein, segmentiert sie und speichert sie in target_dir."""
     
     if os.path.exists(target_dir):
@@ -201,11 +203,13 @@ def prepare_dataset(source_dir, target_dir):
 # ==========================================
 
 def get_contours_hierarchy(image):
+    """Liefert alle Konturen samt Hierarchie eines binären Bildes und bildet die Grundlage für die spätere Fenster- und Fragmentzählung."""
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     _, thresh = cv2.threshold(gray, 10, 255, cv2.THRESH_BINARY)
     return cv2.findContours(thresh, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
 
 def analyze_geometry_features(contours, hierarchy):
+    """Fasst die Geometrie der Hauptkontur zusammen: zählt Fenster/Zentrum, erkennt Fragmente und sammelt Flächen- sowie Kanteneigenschaften für den Entscheidungsbaum."""
     stats = {
         "has_object": False, "area": 0, "solidity": 0,
         "num_windows": 0, "has_center_hole": False, "main_contour": None,
@@ -264,10 +268,7 @@ def analyze_geometry_features(contours, hierarchy):
     return stats
 
 def detect_defects(image, spot_threshold=DEFECT_SPOT_THRESHOLD, debug=False):
-    """
-    Nutzt Morphological Black-Hat, um dunkle Flecken unabhängig von
-    Schattenverläufen zu finden.
-    """
+    """Führt die Farb-/Texturpipeline (Maskierung, Erosion, Black-Hat, Statistik) aus und stellt die resultierenden Defektmetriken für den Entscheidungsbaum bereit."""
     # 1. Konvertierung in Graustufen
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
@@ -367,7 +368,7 @@ def detect_defects(image, spot_threshold=DEFECT_SPOT_THRESHOLD, debug=False):
     }
 
 def print_table(headers, rows, indent="  "):
-    """Gibt eine einfache Tabelle mit fester Spaltenbreite aus."""
+    """Gibt eine einfache Tabelle mit fester Spaltenbreite aus, damit Zusammenfassungen im Terminal gut lesbar bleiben."""
     widths = [len(header) for header in headers]
     for row in rows:
         for i, value in enumerate(row):
@@ -381,6 +382,7 @@ def print_table(headers, rows, indent="  "):
     print()
 
 def print_progress(prefix, current, total, bar_length=30):
+    """Zeigt während der Vorverarbeitung einen Fortschrittsbalken im Terminal an."""
     if total <= 0:
         return
     ratio = min(max(current / total, 0), 1)
@@ -390,6 +392,7 @@ def print_progress(prefix, current, total, bar_length=30):
     print(f"\r{prefix} [{bar}] {percent:5.1f}% ({current}/{total})", end="", flush=True)
 
 def collect_image_files(source_dir):
+    """Listet rekursiv alle Bilddateien eines Quellordners auf."""
     image_files = []
     for root, dirs, files in os.walk(source_dir):
         for name in files:
@@ -398,7 +401,7 @@ def collect_image_files(source_dir):
     return image_files
 
 def describe_priority_chain():
-    """Ermittelt die Priorisierungsreihenfolge der Zielklassen."""
+    """Erstellt einen lesbaren String, der die Priorisierungskette aus `LABEL_PRIORITIES` widerspiegelt."""
     class_priority = {}
     for label, prio in LABEL_PRIORITIES.items():
         cls = LABEL_CLASS_MAP.get(label, label.title())
@@ -410,7 +413,7 @@ def describe_priority_chain():
     return " > ".join(ordered)
 
 def normalize_relative_path(path):
-    """Bringt Pfadangaben in ein einheitliches Format."""
+    """Überführt beliebige Pfadangaben in das einheitliche Relative-Format (Data/Images...), das die Annotationen verwenden."""
     if not path:
         return ""
     normalized = path.replace("\\", "/")
@@ -420,7 +423,7 @@ def normalize_relative_path(path):
     return normalized.lstrip("/")
 
 def resolve_priority_label(raw_label):
-    """Wählt bei Mehrfachlabels den wichtigsten Eintrag."""
+    """Zerlegt einen (ggf. komma-separierten) Labelstring und liefert das Label mit der höchsten Priorität zurück."""
     if not raw_label:
         return None
     candidates = [lbl.strip().lower() for lbl in raw_label.split(",") if lbl.strip()]
@@ -430,6 +433,7 @@ def resolve_priority_label(raw_label):
     return candidates[0]
 
 def load_annotations(annotation_file):
+    """Liest die CSV-Annotationen ein und mappt jeden relativen Pfad auf eine der vier Zielklassen."""
     annotations = {}
     if not os.path.exists(annotation_file):
         print(f"\nHinweis: '{annotation_file}' nicht gefunden, Validierung übersprungen.")
@@ -449,7 +453,7 @@ def load_annotations(annotation_file):
     return annotations
 
 def copy_misclassified(pred_entry, expected_label, falsch_dir):
-    """Speichert fehlerhafte Bilder mit zusätzlicher Labelinformation."""
+    """Kopiert ein fehlklassifiziertes Bild in den Prüfordner und schreibt Ground-Truth sowie Prognose in den Dateinamen."""
     os.makedirs(falsch_dir, exist_ok=True)
     rel_name = normalize_relative_path(pred_entry.get("relative_path", ""))
     if not rel_name:
@@ -463,7 +467,7 @@ def copy_misclassified(pred_entry, expected_label, falsch_dir):
     shutil.copy(pred_entry["source_path"], dest_path)
 
 def validate_predictions(predictions, annotations, falsch_dir):
-    """Vergleicht Sortierergebnis mit den Annotationen und erstellt einen Report."""
+    """Vergleicht Vorhersagen mit Annotationen, druckt Zusammenfassungen und kopiert jede Abweichung für die manuelle Kontrolle."""
     if not annotations:
         print("\nKeine Annotationen geladen -> Validierung übersprungen.")
         return
@@ -529,9 +533,9 @@ def validate_predictions(predictions, annotations, falsch_dir):
             copy_misclassified(pred, expected, falsch_dir)
 
 def sort_dataset_manual_rules(source_data_dir, sorted_data_dir):
+    """Steuert die komplette Klassifikationspipeline (Feature-Ermittlung und Entscheidungsbaum) und spiegelt das Ergebnis nach `output/sorted`."""
     print("\nStarte Sortierung und Symmetrie-Berechnung...")
     CLASSES = ["Normal", "Bruch", "Farbfehler", "Rest"]
-    annotations_all = load_annotations(ANNOTATION_FILE)
     
     if os.path.exists(sorted_data_dir):
         shutil.rmtree(sorted_data_dir)
@@ -551,7 +555,6 @@ def sort_dataset_manual_rules(source_data_dir, sorted_data_dir):
             if image is None: continue
 
             rel_path = normalize_relative_path(os.path.relpath(img_path, source_data_dir))
-            ann_label = annotations_all.get(rel_path)
 
             contours, hierarchy = get_contours_hierarchy(image)
             geo = analyze_geometry_features(contours, hierarchy)
@@ -615,6 +618,8 @@ def sort_dataset_manual_rules(source_data_dir, sorted_data_dir):
             if not rest_structural_hint:
                 rest_strength = min(rest_strength, 1)
 
+            # === Farbanalyse: erzeugt "color_candidate" mit Stärke 0–2 ===
+            # Stärke 2 = harter Hinweis (z.B. große Fleckfläche), Stärke 1 = weiche Hinweise (Textur, LAB, Dark Delta).
             if source_is_anomaly:
                 col_res = detect_defects(image, spot_threshold=DEFECT_SPOT_THRESHOLD)
             else:
@@ -670,10 +675,17 @@ def sort_dataset_manual_rules(source_data_dir, sorted_data_dir):
             if color_candidate and rest_strength > 1 and not multi_outer_spot:
                 rest_strength = 1
 
+            # === Decision Level 1: grundlegende Guards ===
+            # 1) Kein Objekt -> Rest
+            # 2) Lochanzahl != 7 -> sofortige Rückgabe (Rest oder Bruch)
+            # 3) Lochanzahl == 7 -> tiefer in den Entscheidungsbaum (Farbe/Symmetrie/Kanten)
             if not geo["has_object"]:
                 target_class = "Rest"
                 reason = "Kein Objekt"
             elif total_holes < 7:
+                # --- Level 2A: Lochanzahl < 7 ---
+                # Farbfehler dürfen die Geometrie nur überstimmen, wenn das Farbsignal stark ist.
+                # Ansonsten entscheidet der Rest-Hinweis oder Bruch bleibt die Default-Klasse.
                 if color_candidate and color_strength >= 2:
                     target_class, reason = color_candidate
                 elif rest_strength >= 2:
@@ -683,10 +695,16 @@ def sort_dataset_manual_rules(source_data_dir, sorted_data_dir):
                     target_class = "Bruch"
                     reason = f"Zu wenig Löcher: {total_holes}"
             elif total_holes > 7:
+                # --- Level 2B: Lochanzahl > 7 ---
                 target_class = "Rest"
                 reason = f"Zu viele Fragmente: {total_holes}"
             else:
-                # Starker Rest-Hinweis hat Vorrang vor Farbbewertung
+                # --- Level 3: Lochanzahl == 7 ---
+                # Reihenfolge:
+                #   (a) harter Rest-Hinweis,
+                #   (b) starke Farbe,
+                #   (c) Kantenbruch,
+                #   (d) Rest- oder Bruch-Fallback über Symmetrie.
                 if source_is_anomaly and rest_strength >= 2:
                     target_class = "Rest"
                     reason = rest_reason or "Starker Resthinweis"
@@ -717,12 +735,6 @@ def sort_dataset_manual_rules(source_data_dir, sorted_data_dir):
                         elif target_class == "Normal":
                             file_prefix = f"{symmetry_score:03d}_"
                             reason = f"Symmetrie: {symmetry_score}/100"
-
-            if ann_label:
-                target_class = ann_label
-                reason = "Annotation"
-                if target_class == "Normal":
-                    file_prefix = ""
 
             # Datei kopieren (mit Prefix nur bei Normal)
             new_filename = f"{file_prefix}{file}"

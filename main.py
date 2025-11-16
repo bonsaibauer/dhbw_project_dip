@@ -599,12 +599,13 @@ def sort_run(source_data_dir, sorted_data_dir):
             edge_segments = geo.get("edge_segments", 0)
             window_ratio = (max(areas) / max(1, min(areas))) if areas and min(areas) > 0 else 1
 
-            symmetry_score = 0
+            symmetry_score = 0.0
             if len(areas) > 0:
                 mean_a = np.mean(areas)
                 std_a = np.std(areas)
                 cv = std_a / mean_a if mean_a > 0 else 0
-                symmetry_score = max(0, min(100, int(100 * (1 - (cv * SYM_SEN)))))
+                raw_score = 100 * (1 - (cv * SYM_SEN))
+                symmetry_score = max(0.0, min(100.0, round(raw_score, 1)))
 
             rest_reason = None
             rest_strength = 0
@@ -747,8 +748,7 @@ def sort_run(source_data_dir, sorted_data_dir):
                         classified = True
                     else:
                         if target_class == "Normal":
-                            file_prefix = f"{symmetry_score:03d}_"
-                            reason = f"Symmetrie: {symmetry_score}/100"
+                            reason = f"Symmetrie: {symmetry_score:.2f}%"
 
                     if not classified:
                         if target_class == "Normal" and rest_strength >= 1 and rest_reason:
@@ -756,10 +756,16 @@ def sort_run(source_data_dir, sorted_data_dir):
                             reason = rest_reason
                         elif source_is_anomaly and symmetry_score < BRK_SYM:
                             target_class = "Bruch"
-                            reason = f"Asymmetrie: {symmetry_score}/100"
+                            reason = f"Asymmetrie: {symmetry_score:.2f}%"
                         elif target_class == "Normal":
-                            file_prefix = f"{symmetry_score:03d}_"
-                            reason = f"Symmetrie: {symmetry_score}/100"
+                            reason = f"Symmetrie: {symmetry_score:.2f}%"
+
+            if target_class == "Normal":
+                file_prefix = f"{symmetry_score:06.2f}_"
+                if not reason or reason == "OK":
+                    reason = f"Symmetrie: {symmetry_score:.2f}%"
+            else:
+                file_prefix = ""
 
             # Datei kopieren (mit Prefix nur bei Normal)
             new_filename = f"{file_prefix}{file}"

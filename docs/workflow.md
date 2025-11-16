@@ -1,95 +1,135 @@
-# Workflow & Parametrisierung
+# Workflow & Entscheidungsbaum  
 
-Dieses Dokument beschreibt, wie `main.py` arbeitet. Die folgenden sechs Schritte bilden den kompletten Workflow – jede Überschrift enthält eine Kurzbeschreibung („einfach erklärt“) und darunter die Details mit Bezug auf die Funktionen und Parameter.
+Dieses Dokument fasst den gesamten Ablauf in `main.py` zusammen. Jeder Abschnitt beschreibt:
+- **Welche Funktionen beteiligt sind** und was sie leisten.
+- **Wie der Ablauf** (Reihenfolge, Zwischenschritte) aussieht.
+- **Welche Entscheidungsregeln** greifen und auf welchen Parametern sie beruhen.
 
-## 1. Einstellungen laden & Ordner vorbereiten
+Alle Angaben beziehen sich auf den heuristischen Modus.
 
-**Kurz erklärt**  
-Bevor Bilder angefasst werden, definiert der Code alle Pfade, Zielordner und Parameter (z.B. Farbschwellen, Kernelgrößen). So lässt sich das Verhalten zentral steuern.
+---
 
-**Details**  
-- Konstanten wie `RAW_DATA_DIR`, `OUTPUT_DIR`, `LOWER_GREEN`, `DEFECT_SPOT_THRESHOLD` usw. liegen am Anfang von `main.py`.  
-- `OUTPUT_DIR` wird zu Beginn des Hauptprogramms angelegt (`os.makedirs(OUTPUT_DIR, exist_ok=True)`), damit alle folgenden Schritte ihre Ergebnisse dorthin schreiben können.  
-- Die Parametergruppen teilen sich grob in:
-  - **Segmentierung** (`LOWER_GREEN`, `UPPER_GREEN`, `CONTOUR_AREA_MIN`, `WARP_SIZE`, `TARGET_WIDTH`, `TARGET_HEIGHT`)
-  - **Geometrie-Analyse** (`EPSILON_FACTOR`, `MIN_HOLE_AREA`, `MIN_WINDOW_AREA`, `MAX_CENTER_HOLE_AREA`)
-  - **Farbanalyse** (`EROSION_*`, `BLACKHAT_*`, `NOISE_KERNEL_SIZE`, `DEFECT_SPOT_THRESHOLD`)
-  - **Validierung/Priorisierung** (`LABEL_PRIORITIES`, `LABEL_CLASS_MAP`)
+## 1. Einstellungen & Ordner vorbereiten
 
-## 2. Bildliste erstellen
+- **Konstanten & Pfade**: `RAW_DATA_DIR`, `OUTPUT_DIR`, `PROCESSED_DATA_DIR`, `SORTED_DATA_DIR`, `FALSCH_DIR`, `ANNOTATION_FILE`.  
+- **Parametergruppen**  
+  - Segmentierung: `LOWER_GREEN`, `UPPER_GREEN`, `CONTOUR_AREA_MIN`, `WARP_SIZE`, `TARGET_WIDTH`, `TARGET_HEIGHT`.  
+  - Geometrie: `EPSILON_FACTOR`, `MIN_HOLE_AREA`, `MIN_WINDOW_AREA`, `MAX_CENTER_HOLE_AREA`, `FRAGMENT_AREA_MIN`, `EDGE_DAMAGE_THRESHOLD`, `EDGE_MAX_SEGMENTS`.  
+  - Farbe & Textur: `EROSION_*`, `BLACKHAT_*`, `DEFECT_SPOT_THRESHOLD`, `FINE_*`, `TEXTURE_STD_THRESHOLD`, `LAB_A_STD_THRESHOLD`.  
+  - Entscheidungsbaum: `REST_*`, `FARBFEHLER_*`, `BRUCH_SYMMETRY_THRESHOLD`, `SYMMETRY_SENSITIVITY`.  
+  - Validierung: `LABEL_PRIORITIES`, `LABEL_CLASS_MAP`, `CLASS_DESCRIPTIONS`.  
+- Beim Programmstart werden alle Ausgabeverzeichnisse erzeugt (`os.makedirs(..., exist_ok=True)`), sodass die folgenden Schritte direkt wegschreiben können.
 
-**Kurz erklärt**  
-Alle verfügbaren Bilder werden aufgelistet, damit die Segmentierung weiß, wie viel Arbeit ansteht und der Fortschrittsbalken korrekt ist.
+---
 
-**Details**  
-- `collect_image_files(source_dir)` durchläuft `data/Images` rekursiv und sammelt jedes `.jpg/.jpeg/.png`.  
-- Die Rückgabe ist eine Liste `(root, name)`; dadurch bleibt die Reihenfolge beim späteren Abarbeiten stabil.  
-- `prepare_dataset()` nutzt die Länge dieser Liste, um den Fortschritt (`print_progress("  Segmentierung", idx, total_files)`) auszurechnen.
+## 2. Bildliste & Segmentierung (`collect_image_files`, `prepare_dataset`, `run_preprocessing`)
 
-## 3. Segmentierung (Hintergrund entfernen & Perspektive korrigieren)
+1. **`collect_image_files(source_dir)`**  
+   - listet rekursiv alle `.jpg/.jpeg/.png`. Die Reihenfolge bestimmt später den Fortschritt.
 
-**Kurz erklärt**  
-Jedes Rohbild wird von grünem Hintergrund befreit, zurechtgeschnitten und auf eine einheitliche Größe gebracht. Dadurch erhält die nachfolgende Sortierung saubere, ausgerichtete Snacks.
+2. **`print_progress(prefix, current, total)`**  
+   - einfacher CLI-Balken, der während der Segmentierung aktualisiert wird.
 
-**Details**  
-- `prepare_dataset()` ruft für jedes Bild `run_preprocessing()` auf.  
-- `run_preprocessing()`:
-  1. Wandelt das Bild in HSV um und erstellt eine Maske mit `LOWER_GREEN`/`UPPER_GREEN`, damit nur der nicht-grüne Snack übrig bleibt.
-  2. Sucht Konturen im maskierten Bild und verwirft alles unter `CONTOUR_AREA_MIN`, um Rauschen auszublenden.
-  3. Nutzt `cv2.minAreaRect` + `cv2.getPerspectiveTransform`, um das Objekt auf `WARP_SIZE` zu entzerren.
-  4. Skaliert auf `TARGET_WIDTH`×`TARGET_HEIGHT`, bevor das Ergebnis gespeichert wird.  
-- Die Bilder landen im parallelen Verzeichnis `output/processed/<ursprungsklasse>/...`. Segmentierungsschritte lassen sich über die oben genannten Parameter feinjustieren.
+3. **`prepare_dataset(source_dir, target_dir)`**  
+   - steuert die komplette Vorverarbeitung: Dateien sammeln, Bilder laden, `run_preprocessing()` aufrufen, Ergebnisse unter `output/processed/<Klasse>/...` speichern.
 
-## 4. Geometrie- und Farbprüfung (Sortierung)
+4. **`run_preprocessing(image, result)`**  
+   - Schritte: HSV-Maske (entfernt grünen Hintergrund) → Konturen suchen und filtern (`CONTOUR_AREA_MIN`) → größte Kontur entzerren (`cv2.minAreaRect` + `cv2.getPerspectiveTransform`) → auf `TARGET_WIDTH × TARGET_HEIGHT` skalieren → Ergebnis in `result` ablegen.  
+   - Parameter wie `EROSION_ITERATIONS` können oben zentral angepasst werden.
 
-**Kurz erklärt**  
-Die segmentierten Bilder werden analysiert: Stimmt die Lochanzahl? Gibt es Flecken? Ist die Symmetrie in Ordnung? Danach werden sie einer Klasse zugeordnet und in `output/sorted` kopiert.
+Ergebnis: `output/processed` enthält für jede Quelle (Normal/Anomaly) die segmentierten, ausgerichteten Snacks.
 
-**Details**  
-- `sort_dataset_manual_rules()` läuft über `output/processed` und ruft folgende Helfer:
-  - `get_contours_hierarchy(image)` erzeugt Graustufen, Thresholding und liefert Konturen plus Hierarchie (wichtig für Lochzählung).
-  - `analyze_geometry_features(contours, hierarchy)` berechnet `num_windows`, `has_center_hole`, Fensterflächen usw. – gesteuert durch `EPSILON_FACTOR`, `MIN_HOLE_AREA`, `MIN_WINDOW_AREA`, `MAX_CENTER_HOLE_AREA`.
-  - `detect_defects(image, spot_threshold=DEFECT_SPOT_THRESHOLD)` trennt Objekt vom Hintergrund, nutzt Morphological Black-Hat (`BLACKHAT_KERNEL_SIZE`, `BLACKHAT_CONTRAST_THRESHOLD`) und prüft, ob die Fleckenfläche größer als `DEFECT_SPOT_THRESHOLD` ist.
-- Entscheidungslogik:
-  1. Kein Objekt erkannt → `Rest`.
-  2. Lochanzahl ≠ 7 → `Bruch` (zu wenig) oder `Rest` (zu viele Fragmente).
-  3. Lochanzahl = 7 → Farbprüfung. Bei Flecken → `Farbfehler`, sonst Symmetrie-Bewertung (`SYMMETRY_SENSITIVITY`) und Einstufung als `Normal`.
-- Ausgaben:
-  - Mit `VERBOSE_SORT_OUTPUT = True` erscheint pro Bild eine Logzeile `[Klasse] Name | Grund | Ziel`.
-  - Alle Dateien werden nach `output/sorted/<Klasse>/` kopiert, bei `Normal` zusätzlich mit Symmetriepräfix (`XYZ_`).
+---
 
-## 5. Übersicht & Reasoning der Sortierung
+## 3. Feature-Ermittlung (Geometrie & Farbanalyse)
 
-**Kurz erklärt**  
-Nach der Sortierung zeigt der Code eine Tabelle mit Anzahl, Anteilen und häufigstem Grund pro Klasse. So sieht man sofort, wie viele Fälle wohin gelaufen sind und warum.
+1. **`get_contours_hierarchy(image)`**  
+   - erzeugt ein Binärbild, sucht Konturen plus Hierarchie → Grundlage für Lochzählung, Fragmente, Fensteranalyse.
 
-**Details**  
-- `sort_dataset_manual_rules()` sammelt Laufzeitstatistiken (`stats_counter`, `reason_counter`).  
-- Am Ende wird `print_table()` mit den Spalten *Klasse*, *Anzahl*, *Anteil %*, *Beschreibung* und *Häufigster Grund* aufgerufen.  
-- Die Beschreibung kommt aus `CLASS_DESCRIPTIONS`, sodass direkt erkennbar ist, wofür jede Klasse steht.
+2. **`analyze_geometry_features(contours, hierarchy)`**  
+   - liefert: Hauptkontur, Fläche, Konvexhülle, `edge_damage`, `edge_segments`, `num_windows`, `window_areas`, `has_center_hole`, `fragment_count`, `outer_count`.  
+   - Diese Daten treiben später die Rest-/Bruch-Hints sowie Symmetrie- und Kantenerkennung.
 
-## 6. Validierung & Fehlersammlung
+3. **`detect_defects(image, spot_threshold)`**  
+   - komplette Farbanalyse: Maskierung → Erosion (`EROSION_*`) → Black-Hat (`BLACKHAT_*`) → Schwellenwert & Rausch-Filter → Kennzahlen (`spot_area`, `texture_std`, `lab_std`, `dark_delta`, `median_intensity`, `is_defective`).  
+   - Aus diesen Werten entsteht `color_strength`, das über Farbhints („Farbfehler“) entscheidet.
 
-**Kurz erklärt**  
-Die Sortierergebnisse werden mit `data/image_anno.csv` verglichen. Ein Bericht zeigt Genauigkeiten und Fehler, daneben werden falsch eingeordnete Bilder in einen Kontrollordner kopiert.
+---
 
-**Details**  
-- `load_annotations()`:
-  - Verwendet `normalize_relative_path()` zur Vereinheitlichung der Dateipfade.
-  - Zerlegt Mehrfachlabels (`resolve_priority_label()`) und mappt sie über `LABEL_CLASS_MAP` auf die vier Zielklassen.
-- `validate_predictions(predictions, annotations, FALSCH_DIR)`:
-  1. Zählt Treffer und Fehler pro Klasse.
-  2. Gibt zwei Tabellen aus – **Gesamtstatistik** (Bewertet, Treffer, Genauigkeit, Falsch zugeordnet, ggf. „Ohne passende Annotation“) und **Klassenübersicht** (Erwartet, Treffer, Genauigkeit %).
-  3. Zeigt die aktuelle Priorisierungskette (z.B. `Bruch > Farbfehler > Rest > Normal`), damit klar ist, warum Mehrfachlabels so aufgelöst wurden.
-  4. Kopiert jede Fehlzuordnung nach `output/sorted/Falsch` und ergänzt den Dateinamen mit `gt-<korrekt>` und `pred-<erkannt>`.
+## 4. Sortieren via Entscheidungsbaum (`sort_dataset_manual_rules`)
 
-## Hauptprogramm in Kurzform
+### 4.1 Ablauf
+1. **Verzeichnis vorbereiten** (`sorted_data_dir` leeren, Klasse-Unterordner anlegen).  
+2. **Iteration** über `output/processed`: Geometrie- und Farbmerkmale pro Bild berechnen.  
+3. **Decision Levels** (siehe unten) bestimmen `target_class` + `reason`.  
+4. **Datei kopieren** → `output/sorted/<Klasse>/<Prefix optional>/<Name>`. Bei `Normal` wird standardmäßig `"{symmetry_score:03d}_"` vorangestellt.  
+5. **Statistik** (`stats_counter`, `reason_counter`) speisen später die Ausgabe.
 
-1. **Einstellungen & Ordner** – Parameter laden, `output/` anlegen.
-2. **Bildliste** – Dateien sammeln (`collect_image_files`).
-3. **Segmentierung** – Hintergründe entfernen, Bilder normieren (`prepare_dataset` → `run_preprocessing`).
-4. **Sortierung** – Geometrie + Farbe prüfen, Dateien klassifizieren (`sort_dataset_manual_rules` + Helfer).
-5. **Übersicht** – Tabellarische Zusammenfassung der Sortierergebnisse (`print_table` in Schritt 5).
-6. **Validierung** – Abgleich mit `image_anno.csv`, Report + Kopie der Fehlbilder (`validate_predictions`).
+### 4.2 Decision Level 1 – Guards
+- Kein Objekt (`geo["has_object"] == False`) → `Rest`.  
+- Lochanzahl < 7 → potentielle Bruchfälle.  
+- Lochanzahl > 7 → sofort `Rest` („zu viele Fragmente“).  
+- Lochanzahl = 7 → weiter zu Level 3.
 
-Jeder Schritt baut auf dem vorherigen auf, wodurch der gesamte Prozess von Rohdaten bis Qualitätsreport vollständig automatisiert ist.
+### 4.3 Decision Level 2 – Lochanzahl < 7
+1. **Starke Farbe** (`color_strength ≥ 2`) → `Farbfehler`.  
+2. **Starker Rest-Hinweis** (`rest_strength ≥ 2`, z. B. Fragmente, mehrere äußere Konturen) → `Rest`.  
+3. **Sonst** → `Bruch` („zu wenig Löcher“).  
+Hinweis: rein fensterbasierte Hinweise werden auf Stärke 1 begrenzt (keine sofortige Rest-Klassifikation).
+
+### 4.4 Decision Level 3 – Lochanzahl = 7
+Reihenfolge der Checks:
+1. **Rest** (`rest_strength ≥ 2`).  
+2. **Farbe** (`color_strength ≥ 2` oder `rest_strength ≤ 1`).  
+3. **Kantenbruch** (`edge_damage ≥ EDGE_DAMAGE_THRESHOLD` oder `edge_segments ≥ EDGE_MAX_SEGMENTS`) und `color_strength < 2`.  
+4. **Symmetrie** (`symmetry_score < BRUCH_SYMMETRY_THRESHOLD` → `Bruch`, sonst `Normal` mit Prefix).  
+Damit entsteht eine klare Priorisierung: klebrige Restfälle vorn, starke Farbe vor Kanten, Kanten vor normaler Symmetrie.
+
+### 4.5 Weitere Helfer im Umfeld
+- `normalize_relative_path(path)` – vereinheitlicht Pfade (wichtig für Logging/Validierung).  
+- `resolve_priority_label(raw_label)` – falls nötig bei Mehrfachlabels.  
+- `describe_priority_chain()` – liefert den String für die Validierungsanzeige.
+
+---
+
+## 5. Übersichtstabellen (`print_table`)
+
+- Nach Abschluss der Sortierung: Tabelle mit Klasse/Anzahl/Anteil/Beschreibung/Häufigstem Grund.  
+- Während `validate_predictions()`: Tabellen für Gesamtstatistik und Klassenübersicht.  
+- `print_table()` sorgt für feste Spaltenbreiten, sodass die Ausgaben im Terminal sauber lesbar sind.
+
+---
+
+## 6. Validierung & Fehlbilder
+
+### 6.1 `load_annotations(annotation_file)`
+- liest `data/image_anno.csv`, verwendet `normalize_relative_path()` + `resolve_priority_label()` und mappt über `LABEL_CLASS_MAP` auf eine der vier Zielklassen.
+
+### 6.2 `validate_predictions(predictions, annotations, falsch_dir)`
+1. Vergleicht jede Prognose (`pred["predicted"]`) mit dem Annotationseintrag.  
+2. Baut Klassenstatistiken (`per_class`).  
+3. Druckt zwei Tabellen: Gesamtstatistik (Bewertet, Treffer, Genauigkeit, Falsch) und Klassenübersicht (Erwartet, Treffer, Genauigkeit %).  
+4. Kopiert Fehlbilder via `copy_misclassified()` nach `output/sorted/Falsch` (Dateiname enthält `gt-...`/`pred-...`).  
+- Ergebnis: Der Fehlordner enthält alle Abweichungen inkl. Grund.
+
+---
+
+## 7. Hilfsfunktionen & Logging
+
+- `print_progress(...)` – Fortschrittsanzeige bei der Segmentierung.  
+- `collect_image_files(...)` – Inputliste für `prepare_dataset`.  
+- `print_table(...)` – Tabellenformatierung.  
+- `describe_priority_chain()` – Textausgabe der Label-Prioritäten.  
+- `copy_misclassified(...)` – kopiert Fehlbilder mit aussagekräftigem Dateinamen.
+
+---
+
+## 8. Hauptprogramm (Schritte im Überblick)
+
+1. **Konfiguration** laden, `output/` anlegen.  
+2. **Segmentierung** (Schritt 2): Rohbilder zu `output/processed`.  
+3. **Sortierung** (Schritt 4): Decision Levels -> `output/sorted`.  
+4. **Übersicht** (Schritt 5): Tabellen ausgeben.  
+5. **Validierung** (Schritt 6): Annotierte Wahrheiten prüfen, Fehlbilder sammeln.  
+
+Damit erfüllt der Code alle Vorgaben: Hintergrund entfernen, in vier Klassen einsortieren, Fehlbilder dokumentieren und Normalbilder nach Symmetrie prefixed abspeichern – rein heuristisch.

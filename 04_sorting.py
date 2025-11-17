@@ -5,11 +5,11 @@ import shutil
 import stat
 from functools import lru_cache
 
-BASE_DIR = os.path.dirname(__file__)
-PARAMETER_FILE = os.path.join(BASE_DIR, "parameter.json")
+base_dir = os.path.dirname(__file__)
+path_path = os.path.join(base_dir, "path.json")
 
 
-def _load_json_file(path, error_msg):
+def load_json(path, error_msg):
     if not os.path.exists(path):
         raise FileNotFoundError(error_msg)
     with open(path, encoding="utf-8") as handle:
@@ -17,29 +17,28 @@ def _load_json_file(path, error_msg):
 
 
 @lru_cache(maxsize=1)
-def load_parameter_config():
-    return _load_json_file(
-        PARAMETER_FILE,
-        f"Parameterdatei '{PARAMETER_FILE}' nicht gefunden.",
+def load_path_config():
+    return load_json(
+        path_path,
+        f"Pfaddatei '{path_path}' nicht gefunden.",
     )
 
 
-def _normalize_path_value(path_value):
+def norm_path(path_value):
     return os.path.normpath(path_value) if path_value else ""
 
 
-def fetch_pipeline_paths():
+def load_paths():
     return {
-        key: _normalize_path_value(value)
-        for key, value in load_parameter_config().get("paths", {}).items()
+        key: norm_path(value)
+        for key, value in load_path_config().get("paths", {}).items()
     }
 
 
-def is_sort_logging_enabled():
-    return bool(load_parameter_config().get("sort_log", True))
+SORT_LOG_ENABLED = True
 
 
-def render_text_table(headers, rows, indent="  "):
+def render_table(headers, rows, indent="  "):
     """Gibt eine Tabelle mit fester Spaltenbreite aus."""
     widths = [len(header) for header in headers]
     for row in rows:
@@ -55,13 +54,13 @@ def render_text_table(headers, rows, indent="  "):
         print(indent + " | ".join(row[i].ljust(widths[i]) for i in range(len(row))))
     print()
 
-PIPELINE_PATHS = fetch_pipeline_paths()
-PIPELINE_CSV_PATH = PIPELINE_PATHS["pipeline_csv_path"]
-SORTED_OUTPUT_DIR = PIPELINE_PATHS["sorted_output_directory"]
-SORT_LOG_ENABLED = is_sort_logging_enabled()
+path_map = load_paths()
+pipe_csv = path_map["pipeline_csv_path"]
+sorted_dir = path_map["sorted_output_directory"]
+sort_flag = SORT_LOG_ENABLED
 
 
-def display_progress_bar(prefix, current, total, bar_len=30):
+def show_progress(prefix, current, total, bar_len=30):
     if total <= 0:
         return
     ratio = min(max(current / total, 0), 1)
@@ -71,7 +70,7 @@ def display_progress_bar(prefix, current, total, bar_len=30):
     print(f"\r{label}[{bar}] {ratio * 100:5.1f}% ({current}/{total})", end="", flush=True)
 
 
-def read_classification_rows(csv_path):
+def read_rows(csv_path):
     if not os.path.exists(csv_path):
         print(f"Fehler: CSV '{csv_path}' nicht gefunden.")
         return [], []
@@ -82,7 +81,7 @@ def read_classification_rows(csv_path):
     return rows, headers
 
 
-def ensure_sorting_columns(headers, required):
+def ensure_cols(headers, required):
     updated = list(headers)
     for name in required:
         if name not in updated:
@@ -90,14 +89,14 @@ def ensure_sorting_columns(headers, required):
     return updated
 
 
-def write_sorting_rows(csv_path, headers, rows):
+def write_rows(csv_path, headers, rows):
     with open(csv_path, "w", encoding="utf-8", newline="") as csv_file:
         writer = csv.DictWriter(csv_file, fieldnames=headers)
         writer.writeheader()
         writer.writerows(rows)
 
 
-def remove_directory_tree(folder):
+def clear_folder(folder):
     if not os.path.exists(folder):
         return
 
@@ -111,12 +110,12 @@ def remove_directory_tree(folder):
     shutil.rmtree(folder, onerror=_on_rm_error)
 
 
-def sort_images_from_pipeline_csv(csv_path, sorted_dir, log_progress=True):
-    rows, headers = read_classification_rows(csv_path)
+def sort_images(csv_path, sorted_dir, log_progress=True):
+    rows, headers = read_rows(csv_path)
     if not rows:
         return
 
-    remove_directory_tree(sorted_dir)
+    clear_folder(sorted_dir)
 
     classes = ["Normal", "Bruch", "Farbfehler", "Rest"]
     class_counts = {cls: 0 for cls in classes}
@@ -150,7 +149,7 @@ def sort_images_from_pipeline_csv(csv_path, sorted_dir, log_progress=True):
         row["sorted_path"] = dest_path
 
         if log_progress and total_files > 0:
-            display_progress_bar("  Sortierung", idx, total_files)
+            show_progress("  Sortierung", idx, total_files)
 
     if total_files > 0:
         if log_progress:
@@ -162,19 +161,19 @@ def sort_images_from_pipeline_csv(csv_path, sorted_dir, log_progress=True):
             amount = class_counts.get(cls, 0)
             share = (amount / total_files * 100) if total_files else 0.0
             summary_rows.append([cls, str(amount), f"{share:.1f}"])
-        render_text_table(summary_headers, summary_rows)
+        render_table(summary_headers, summary_rows)
 
-    headers = ensure_sorting_columns(headers, ["sorted_path"])
-    write_sorting_rows(csv_path, headers, rows)
+    headers = ensure_cols(headers, ["sorted_path"])
+    write_rows(csv_path, headers, rows)
 
 
-def run_sorting_cli():
-    sort_images_from_pipeline_csv(
-        PIPELINE_CSV_PATH,
-        SORTED_OUTPUT_DIR,
-        SORT_LOG_ENABLED,
+def sort_cli():
+    sort_images(
+        pipe_csv,
+        sorted_dir,
+        sort_flag,
     )
 
 
 if __name__ == "__main__":
-    run_sorting_cli()
+    sort_cli()

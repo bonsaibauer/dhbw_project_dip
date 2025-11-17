@@ -4,12 +4,12 @@ import os
 import shutil
 from functools import lru_cache
 
-BASE_DIR = os.path.dirname(__file__)
-PARAMETER_FILE = os.path.join(BASE_DIR, "parameter.json")
-CLASSIFICATION_FILE = os.path.join(BASE_DIR, "classification.json")
+base_dir = os.path.dirname(__file__)
+path_path = os.path.join(base_dir, "path.json")
+class_path = os.path.join(base_dir, "classification.json")
 
 
-def _load_json_file(path, error_msg):
+def load_json(path, error_msg):
     if not os.path.exists(path):
         raise FileNotFoundError(error_msg)
     with open(path, encoding="utf-8") as handle:
@@ -17,39 +17,39 @@ def _load_json_file(path, error_msg):
 
 
 @lru_cache(maxsize=1)
-def load_parameter_config():
-    return _load_json_file(
-        PARAMETER_FILE,
-        f"Parameterdatei '{PARAMETER_FILE}' nicht gefunden.",
+def load_config():
+    return load_json(
+        path_path,
+        f"Pfaddatei '{path_path}' nicht gefunden.",
     )
 
 
 @lru_cache(maxsize=1)
-def load_classification_config():
-    return _load_json_file(
-        CLASSIFICATION_FILE,
-        f"Klassifikationsdatei '{CLASSIFICATION_FILE}' nicht gefunden.",
+def class_config():
+    return load_json(
+        class_path,
+        f"Klassifikationsdatei '{class_path}' nicht gefunden.",
     )
 
 
-def _normalize_path_value(path_value):
+def norm_path(path_value):
     return os.path.normpath(path_value) if path_value else ""
 
 
-def fetch_pipeline_paths():
-    paths_cfg = load_parameter_config().get("paths", {})
-    return {key: _normalize_path_value(value) for key, value in paths_cfg.items()}
+def load_paths():
+    paths_cfg = load_config().get("paths", {})
+    return {key: norm_path(value) for key, value in paths_cfg.items()}
 
 
-def fetch_label_priorities():
-    return dict(load_classification_config().get("label_priorities", {}))
+def rank_labels():
+    return dict(class_config().get("label_priorities", {}))
 
 
-def fetch_label_class_mapping():
-    return dict(load_classification_config().get("label_class_map", {}))
+def map_labels():
+    return dict(class_config().get("label_class_map", {}))
 
 
-def normalize_annotation_path(path):
+def normalize_path(path):
     """Bringt Pfadangaben in das Format der Annotationen."""
     if not path:
         return ""
@@ -60,7 +60,7 @@ def normalize_annotation_path(path):
     return normalized.lstrip("/")
 
 
-def render_text_table(headers, rows, indent="  "):
+def render_table(headers, rows, indent="  "):
     """Gibt eine Tabelle mit fester Spaltenbreite aus."""
     widths = [len(header) for header in headers]
     for row in rows:
@@ -76,16 +76,16 @@ def render_text_table(headers, rows, indent="  "):
         print(indent + " | ".join(row[i].ljust(widths[i]) for i in range(len(row))))
     print()
 
-PIPELINE_PATHS = fetch_pipeline_paths()
-PIPELINE_CSV_PATH = PIPELINE_PATHS["pipeline_csv_path"]
-ANNOTATION_FILE_PATH = PIPELINE_PATHS["annotation_file_path"]
-FAILED_VALIDATION_DIR = PIPELINE_PATHS["failed_validation_directory"]
-LABEL_PRIORITIES = fetch_label_priorities()
-LABEL_CLASS_MAP = fetch_label_class_mapping()
+path_map = load_paths()
+pipe_csv = path_map["pipeline_csv_path"]
+anno_path = path_map["annotation_file_path"]
+fail_dir = path_map["failed_validation_directory"]
+label_rank = rank_labels()
+label_map = map_labels()
 DEFAULT_CLASSES = ["Normal", "Bruch", "Farbfehler", "Rest"]
 
 
-def select_priority_label(raw_label, label_priorities):
+def select_label(raw_label, label_priorities):
     """Wählt das Label mit der höchsten Priorität aus."""
     if not raw_label:
         return None
@@ -96,7 +96,7 @@ def select_priority_label(raw_label, label_priorities):
     return candidates[0]
 
 
-def load_annotation_classes(annotation_file, label_priorities, label_class_map):
+def load_annos(annotation_file, label_priorities, label_class_map):
     """Lädt CSV-Annotationen und mapped sie auf die Zielklassen."""
     annotations = {}
     if not os.path.exists(annotation_file):
@@ -106,10 +106,10 @@ def load_annotation_classes(annotation_file, label_priorities, label_class_map):
     with open(annotation_file, newline="", encoding="utf-8") as csv_file:
         reader = csv.DictReader(csv_file)
         for row in reader:
-            rel_path = normalize_annotation_path(row.get("image", ""))
+            rel_path = normalize_path(row.get("image", ""))
             if not rel_path:
                 continue
-            base_label = select_priority_label(row.get("label", ""), label_priorities)
+            base_label = select_label(row.get("label", ""), label_priorities)
             if not base_label:
                 continue
             annotations[rel_path] = label_class_map.get(base_label, "Rest")
@@ -117,7 +117,7 @@ def load_annotation_classes(annotation_file, label_priorities, label_class_map):
     return annotations
 
 
-def build_priority_chain(label_priorities, label_class_map):
+def build_chain(label_priorities, label_class_map):
     """Erstellt einen String mit der Priorisierungskette."""
     class_priority = {}
     for label, prio in label_priorities.items():
@@ -132,10 +132,10 @@ def build_priority_chain(label_priorities, label_class_map):
     return " > ".join(ordered)
 
 
-def copy_mismatch_example(pred_entry, expected_label, falsch_dir):
+def copy_miss(pred_entry, expected_label, falsch_dir):
     """Kopiert ein fehlklassifiziertes Bild in den Kontrollordner."""
     os.makedirs(falsch_dir, exist_ok=True)
-    rel_name = normalize_annotation_path(pred_entry.get("relative_path", ""))
+    rel_name = normalize_path(pred_entry.get("relative_path", ""))
     if not rel_name:
         rel_name = os.path.basename(pred_entry["source_path"])
     rel_name = rel_name.replace("/", "_")
@@ -147,7 +147,7 @@ def copy_mismatch_example(pred_entry, expected_label, falsch_dir):
     shutil.copy(pred_entry["source_path"], dest_path)
 
 
-def validate_predictions_against_annotations(
+def check_preds(
     predictions,
     annotations,
     falsch_dir,
@@ -168,7 +168,7 @@ def validate_predictions_against_annotations(
     per_class = {}
 
     for pred in predictions:
-        rel_path = normalize_annotation_path(pred.get("relative_path", ""))
+        rel_path = normalize_path(pred.get("relative_path", ""))
         expected = annotations.get(rel_path)
         if expected is None:
             continue
@@ -212,16 +212,16 @@ def validate_predictions_against_annotations(
                 "-",
             ]
         )
-    render_text_table(headers, rows)
-    chain = build_priority_chain(label_priorities, label_class_map)
+    render_table(headers, rows)
+    chain = build_chain(label_priorities, label_class_map)
     if chain:
         print(f"Priorisierung (höchste Priorität links): {chain}\n")
     if mismatches:
         for pred, expected in mismatches:
-            copy_mismatch_example(pred, expected, falsch_dir)
+            copy_miss(pred, expected, falsch_dir)
 
 
-def load_predictions_from_pipeline_csv(csv_path):
+def load_preds(csv_path):
     if not os.path.exists(csv_path):
         print(f"Fehler: CSV '{csv_path}' nicht gefunden.")
         return []
@@ -243,21 +243,21 @@ def load_predictions_from_pipeline_csv(csv_path):
     return predictions
 
 
-def run_validation_cli():
-    predictions = load_predictions_from_pipeline_csv(PIPELINE_CSV_PATH)
-    annotations = load_annotation_classes(
-        ANNOTATION_FILE_PATH,
-        LABEL_PRIORITIES,
-        LABEL_CLASS_MAP,
+def validate_cli():
+    predictions = load_preds(pipe_csv)
+    annotations = load_annos(
+        anno_path,
+        label_rank,
+        label_map,
     )
-    validate_predictions_against_annotations(
+    check_preds(
         predictions,
         annotations,
-        FAILED_VALIDATION_DIR,
-        LABEL_PRIORITIES,
-        LABEL_CLASS_MAP,
+        fail_dir,
+        label_rank,
+        label_map,
     )
 
 
 if __name__ == "__main__":
-    run_validation_cli()
+    validate_cli()

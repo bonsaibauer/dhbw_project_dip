@@ -6,11 +6,12 @@ from functools import lru_cache
 import cv2
 import numpy as np
 
-BASE_DIR = os.path.dirname(__file__)
-PARAMETER_FILE = os.path.join(BASE_DIR, "parameter.json")
+base_dir = os.path.dirname(__file__)
+path_path = os.path.join(base_dir, "path.json")
+imgproc_path = os.path.join(base_dir, "image_processing.json")
 
 
-def _load_json_file(path, error_msg):
+def load_json(path, error_msg):
     if not os.path.exists(path):
         raise FileNotFoundError(error_msg)
     with open(path, encoding="utf-8") as handle:
@@ -18,86 +19,98 @@ def _load_json_file(path, error_msg):
 
 
 @lru_cache(maxsize=1)
-def load_parameter_config():
-    return _load_json_file(
-        PARAMETER_FILE,
-        f"Parameterdatei '{PARAMETER_FILE}' nicht gefunden.",
+def load_path_config():
+    return load_json(
+        path_path,
+        f"Pfaddatei '{path_path}' nicht gefunden.",
     )
 
 
-def _normalize_path_value(path_value):
+@lru_cache(maxsize=1)
+def load_image_config():
+    return load_json(
+        imgproc_path,
+        f"Image-Processing-Datei '{imgproc_path}' nicht gefunden.",
+    )
+
+
+def norm_path(path_value):
     return os.path.normpath(path_value) if path_value else ""
 
 
-def _get_parameter_section(cfg_name):
-    return load_parameter_config().get(cfg_name, {})
+def read_path_section(cfg_name):
+    return load_path_config().get(cfg_name, {})
 
 
-def _coerce_config_value(cfg, key, default, transform=None):
+def read_image_section(cfg_name):
+    return load_image_config().get(cfg_name, {})
+
+
+def pull_value(cfg, key, default, transform=None):
     value = cfg.get(key, default)
     return transform(value) if transform else value
 
 
-def fetch_pipeline_paths():
+def load_paths():
     return {
-        key: _normalize_path_value(value)
-        for key, value in _get_parameter_section("paths").items()
+        key: norm_path(value)
+        for key, value in read_path_section("paths").items()
     }
 
 
-def fetch_geometry_settings():
-    cfg = _get_parameter_section("geometry")
+def load_geometry():
+    cfg = read_image_section("geometry")
     return {
-        "polygon_epsilon_factor": _coerce_config_value(
+        "polygon_epsilon_factor": pull_value(
             cfg,
             "polygon_epsilon_factor",
             0.0,
         ),
-        "minimum_hole_area": _coerce_config_value(cfg, "minimum_hole_area", 0),
-        "minimum_window_area": _coerce_config_value(cfg, "minimum_window_area", 0),
-        "maximum_center_area": _coerce_config_value(cfg, "maximum_center_area", 0),
-        "minimum_fragment_area": _coerce_config_value(cfg, "minimum_fragment_area", 0),
+        "minimum_hole_area": pull_value(cfg, "minimum_hole_area", 0),
+        "minimum_window_area": pull_value(cfg, "minimum_window_area", 0),
+        "maximum_center_area": pull_value(cfg, "maximum_center_area", 0),
+        "minimum_fragment_area": pull_value(cfg, "minimum_fragment_area", 0),
     }
 
 
-def fetch_spot_detection_settings():
-    cfg = _get_parameter_section("spot")
+def load_spot():
+    cfg = read_image_section("spot")
     return {
         "erosion_kernel_size": tuple(
-            _coerce_config_value(cfg, "erosion_kernel_size", [0, 0])
+            pull_value(cfg, "erosion_kernel_size", [0, 0])
         ),
-        "erosion_iterations": _coerce_config_value(cfg, "erosion_iterations", 0),
+        "erosion_iterations": pull_value(cfg, "erosion_iterations", 0),
         "blackhat_kernel_size": tuple(
-            _coerce_config_value(cfg, "blackhat_kernel_size", [0, 0])
+            pull_value(cfg, "blackhat_kernel_size", [0, 0])
         ),
-        "blackhat_contrast_threshold": _coerce_config_value(
+        "blackhat_contrast_threshold": pull_value(
             cfg,
             "blackhat_contrast_threshold",
             0,
         ),
         "noise_kernel_size": tuple(
-            _coerce_config_value(cfg, "noise_kernel_size", [0, 0])
+            pull_value(cfg, "noise_kernel_size", [0, 0])
         ),
-        "minimum_spot_area": _coerce_config_value(cfg, "minimum_spot_area", 0),
-        "spot_area_ratio": _coerce_config_value(cfg, "spot_area_ratio", 0.0),
-        "fine_erosion_iterations": _coerce_config_value(
+        "minimum_spot_area": pull_value(cfg, "minimum_spot_area", 0),
+        "spot_area_ratio": pull_value(cfg, "spot_area_ratio", 0.0),
+        "fine_erosion_iterations": pull_value(
             cfg,
             "fine_erosion_iterations",
             0,
         ),
-        "inner_erosion_iterations": _coerce_config_value(
+        "inner_erosion_iterations": pull_value(
             cfg,
             "inner_erosion_iterations",
             0,
         ),
-        "inner_spot_ratio": _coerce_config_value(cfg, "inner_spot_ratio", 0.0),
-        "fine_spot_ratio": _coerce_config_value(cfg, "fine_spot_ratio", 0.0),
-        "fine_spot_area": _coerce_config_value(cfg, "fine_spot_area", 0),
-        "dark_percentile": _coerce_config_value(cfg, "dark_percentile", 0),
+        "inner_spot_ratio": pull_value(cfg, "inner_spot_ratio", 0.0),
+        "fine_spot_ratio": pull_value(cfg, "fine_spot_ratio", 0.0),
+        "fine_spot_area": pull_value(cfg, "fine_spot_area", 0),
+        "dark_percentile": pull_value(cfg, "dark_percentile", 0),
     }
 
 
-def normalize_annotation_path(path):
+def normalize_path(path):
     """Normalisiert relative Pfade analog zu den Annotationen."""
     if not path:
         return ""
@@ -107,14 +120,14 @@ def normalize_annotation_path(path):
         normalized = normalized.split(marker, 1)[1]
     return normalized.lstrip("/")
 
-PIPELINE_PATHS = fetch_pipeline_paths()
-PROCESSED_IMAGE_DIR = PIPELINE_PATHS["processed_image_directory"]
-PIPELINE_CSV_PATH = PIPELINE_PATHS["pipeline_csv_path"]
-GEOMETRY_SETTINGS = fetch_geometry_settings()
-SPOT_SETTINGS = fetch_spot_detection_settings()
+path_map = load_paths()
+proc_dir = path_map["processed_image_directory"]
+pipe_csv = path_map["pipeline_csv_path"]
+geo_cfg = load_geometry()
+spot_cfg = load_spot()
 
 
-def display_progress_bar(prefix, current, total, bar_len=30):
+def show_progress(prefix, current, total, bar_len=30):
     if total <= 0:
         return
     ratio = min(max(current / total, 0), 1)
@@ -124,13 +137,13 @@ def display_progress_bar(prefix, current, total, bar_len=30):
     print(f"\r{label}[{bar}] {ratio * 100:5.1f}% ({current}/{total})", end="", flush=True)
 
 
-def convert_bool_to_text(value):
+def bool_text(value):
     return "true" if value else "false"
 
 
 # --- Spot-/Farbprüfung Helfer ---
 
-def create_object_masks(image, ero_kernel, ero_iterations):
+def build_masks(image, ero_kernel, ero_iterations):
     """Erzeugt Masken für Objekt und Analysebereich."""
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     _, mask_obj = cv2.threshold(gray, 10, 255, cv2.THRESH_BINARY)
@@ -138,24 +151,24 @@ def create_object_masks(image, ero_kernel, ero_iterations):
     return gray, mask_obj, mask_analysis
 
 
-def compute_blackhat_filter(gray, kernel):
+def make_blackhat(gray, kernel):
     """Hebt dunkle Flecken über Blackhat-Filter hervor."""
     return cv2.morphologyEx(gray, cv2.MORPH_BLACKHAT, kernel)
 
 
-def detect_defect_contrast(blackhat_img, contrast_threshold):
+def check_contrast(blackhat_img, contrast_threshold):
     """Segmentiert Defekte anhand eines Kontrastschwellwerts."""
     _, mask_defects = cv2.threshold(blackhat_img, contrast_threshold, 255, cv2.THRESH_BINARY)
     return mask_defects
 
 
-def filter_defect_regions(mask_defects, mask_analysis, noise_kernel):
+def filter_spots(mask_defects, mask_analysis, noise_kernel):
     """Begrenzt Defekte auf den Snack und filtert Kleinstrauschen."""
     valid = cv2.bitwise_and(mask_defects, mask_defects, mask=mask_analysis)
     return cv2.morphologyEx(valid, cv2.MORPH_OPEN, noise_kernel)
 
 
-def calculate_texture_features(gray, mask_analysis, dark_percentile):
+def texture_stats(gray, mask_analysis, dark_percentile):
     """Berechnet Texturstreuung, Median und Dark-Delta."""
     object_pixels = gray[mask_analysis == 255]
     if object_pixels.size == 0:
@@ -167,7 +180,7 @@ def calculate_texture_features(gray, mask_analysis, dark_percentile):
     return texture_std, median_intensity, dark_delta
 
 
-def calculate_lab_color_variance(image, mask_analysis):
+def lab_stats(image, mask_analysis):
     """Berechnet LAB-Standardabweichung innerhalb der Objektmaske."""
     lab = cv2.cvtColor(image, cv2.COLOR_BGR2LAB)
     a_channel = lab[:, :, 1]
@@ -177,7 +190,7 @@ def calculate_lab_color_variance(image, mask_analysis):
     return float(np.std(masked_values))
 
 
-def erode_mask_and_area(mask, kernel, iterations):
+def erode_mask(mask, kernel, iterations):
     """Erzeugt eine enger gefasste Maske und liefert Fläche zurück."""
     if iterations <= 0:
         return mask, cv2.countNonZero(mask)
@@ -185,21 +198,21 @@ def erode_mask_and_area(mask, kernel, iterations):
     return eroded, cv2.countNonZero(eroded)
 
 
-def calculate_spot_ratio(spot_area, object_area):
+def spot_ratio(spot_area, object_area):
     """Hilfsfunktion für robuste Quotientenberechnung."""
     return spot_area / max(1, object_area)
 
 
-def meets_primary_defect_criteria(spot_area, object_area, inner_spot_area, ratio_limit, inner_ratio_limit, spot_threshold):
+def check_primary(spot_area, object_area, inner_spot_area, ratio_limit, inner_ratio_limit, spot_threshold):
     """Prüft die Hauptbedingungen (Fläche + Verhältnis) für einen Defekt."""
-    ratio = calculate_spot_ratio(spot_area, object_area)
+    ratio = spot_ratio(spot_area, object_area)
     meets_ratio = (ratio >= ratio_limit) if ratio_limit > 0 else True
     inner_ratio = inner_spot_area / max(1, spot_area)
     meets_inner = (inner_ratio >= inner_ratio_limit) if spot_area > 0 else False
     return spot_area > spot_threshold and meets_ratio and meets_inner
 
 
-def refine_defect_candidates(mask_obj, mask_defects, noise_kernel, ero_kernel, fine_iterations, inner_iterations, inner_ratio_limit, fine_ratio, spot_final_threshold):
+def refine_spots(mask_obj, mask_defects, noise_kernel, ero_kernel, fine_iterations, inner_iterations, inner_ratio_limit, fine_ratio, spot_final_threshold):
     """Führt die feinere Erosionsvariante aus, um kleinere Defekte zu erkennen."""
     if fine_iterations <= 0:
         return False, 0
@@ -210,7 +223,7 @@ def refine_defect_candidates(mask_obj, mask_defects, noise_kernel, ero_kernel, f
     valid_fine = cv2.morphologyEx(valid_fine, cv2.MORPH_OPEN, noise_kernel)
     fine_spot_area = cv2.countNonZero(valid_fine)
 
-    fine_ratio_val = calculate_spot_ratio(fine_spot_area, fine_area_obj)
+    fine_ratio_val = spot_ratio(fine_spot_area, fine_area_obj)
     meets_fine_ratio = (fine_ratio_val >= fine_ratio) if fine_ratio > 0 else True
 
     if inner_iterations > 0:
@@ -231,17 +244,17 @@ def refine_defect_candidates(mask_obj, mask_defects, noise_kernel, ero_kernel, f
     return passes, fine_spot_area
 
 
-def render_debug_view(blackhat_img, mask_analysis):
+def debug_view(blackhat_img, mask_analysis):
     """Erzeugt das Debug-Bild mit maskiertem Blackhat-Result."""
     return cv2.bitwise_and(blackhat_img, blackhat_img, mask=mask_analysis)
 
 
-def detect_surface_spots(image, settings, debug=False):
+def detect_spots(image, settings, debug=False):
     """Führt die Farb- und Texturprüfung mit den übergebenen Parametern aus."""
     ero_kernel = np.ones(settings["erosion_kernel_size"], np.uint8)
     noise_kernel = np.ones(settings["noise_kernel_size"], np.uint8)
 
-    gray, mask_obj, mask_analysis = create_object_masks(
+    gray, mask_obj, mask_analysis = build_masks(
         image,
         ero_kernel,
         settings["erosion_iterations"],
@@ -252,23 +265,23 @@ def detect_surface_spots(image, settings, debug=False):
         cv2.MORPH_ELLIPSE,
         settings["blackhat_kernel_size"],
     )
-    blackhat_img = compute_blackhat_filter(gray, blackhat_kernel)
-    mask_defects = detect_defect_contrast(
+    blackhat_img = make_blackhat(gray, blackhat_kernel)
+    mask_defects = check_contrast(
         blackhat_img,
         settings["blackhat_contrast_threshold"],
     )
-    valid_defects = filter_defect_regions(mask_defects, mask_analysis, noise_kernel)
+    valid_defects = filter_spots(mask_defects, mask_analysis, noise_kernel)
 
     spot_area = cv2.countNonZero(valid_defects)
 
-    texture_std, median_intensity, dark_delta = calculate_texture_features(
+    texture_std, median_intensity, dark_delta = texture_stats(
         gray,
         mask_analysis,
         settings["dark_percentile"],
     )
-    lab_std = calculate_lab_color_variance(image, mask_analysis)
+    lab_std = lab_stats(image, mask_analysis)
 
-    inner_mask, _ = erode_mask_and_area(
+    inner_mask, _ = erode_mask(
         mask_analysis,
         ero_kernel,
         settings["inner_erosion_iterations"],
@@ -276,7 +289,7 @@ def detect_surface_spots(image, settings, debug=False):
     inner_valid = cv2.bitwise_and(valid_defects, valid_defects, mask=inner_mask)
     inner_spot_area = cv2.countNonZero(inner_valid)
 
-    is_defective = meets_primary_defect_criteria(
+    is_defective = check_primary(
         spot_area,
         object_area,
         inner_spot_area,
@@ -286,7 +299,7 @@ def detect_surface_spots(image, settings, debug=False):
     )
 
     if not is_defective:
-        fine_passed, fine_area = refine_defect_candidates(
+        fine_passed, fine_area = refine_spots(
             mask_obj,
             mask_defects,
             noise_kernel,
@@ -303,7 +316,7 @@ def detect_surface_spots(image, settings, debug=False):
 
     debug_image = None
     if debug:
-        debug_image = render_debug_view(blackhat_img, mask_analysis)
+        debug_image = debug_view(blackhat_img, mask_analysis)
 
     result = {
         "color_detection_flag": is_defective,
@@ -318,19 +331,19 @@ def detect_surface_spots(image, settings, debug=False):
     return result
 
 
-def extract_contour_hierarchy(image):
+def extract_contours(image):
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     _, thresh = cv2.threshold(gray, 10, 255, cv2.THRESH_BINARY)
     return cv2.findContours(thresh, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
 
 
-def compute_geometry_features(contours, hierarchy, geometry_settings):
+def geometry_stats(contours, hierarchy, geo_cfg):
     """Zählt Fenster, Fragmente und liefert Geometriekennzahlen."""
-    eps_fact = geometry_settings["polygon_epsilon_factor"]
-    hole_min = geometry_settings["minimum_hole_area"]
-    wind_min = geometry_settings["minimum_window_area"]
-    ctr_maxa = geometry_settings["maximum_center_area"]
-    frag_min = geometry_settings["minimum_fragment_area"]
+    eps_fact = geo_cfg["polygon_epsilon_factor"]
+    hole_min = geo_cfg["minimum_hole_area"]
+    wind_min = geo_cfg["minimum_window_area"]
+    ctr_maxa = geo_cfg["maximum_center_area"]
+    frag_min = geo_cfg["minimum_fragment_area"]
 
     stats = {
         "geometry_has_primary_object": False,
@@ -431,19 +444,19 @@ CSV_FIELDS = [
 ]
 
 
-def analyze_image_features(img_path, source_root, geometry_settings, spot_settings):
+def analyze_image(img_path, source_root, geo_cfg, spot_cfg):
     image = cv2.imread(img_path)
     if image is None:
         return None
 
-    rel_path = normalize_annotation_path(os.path.relpath(img_path, source_root))
+    rel_path = normalize_path(os.path.relpath(img_path, source_root))
     is_anomaly = "Anomaly" in img_path
 
-    contours, hierarchy = extract_contour_hierarchy(image)
-    geo = compute_geometry_features(contours, hierarchy, geometry_settings)
+    contours, hierarchy = extract_contours(image)
+    geo = geometry_stats(contours, hierarchy, geo_cfg)
 
     if is_anomaly:
-        color_res = detect_surface_spots(image, spot_settings)
+        color_res = detect_spots(image, spot_cfg)
     else:
         color_res = {
             "color_detection_flag": False,
@@ -458,8 +471,8 @@ def analyze_image_features(img_path, source_root, geometry_settings, spot_settin
         "relative_path": rel_path,
         "source_path": os.path.abspath(img_path),
         "filename": os.path.basename(img_path),
-        "pipeline_has_anomaly_flag": convert_bool_to_text(is_anomaly),
-        "geometry_has_primary_object": convert_bool_to_text(
+        "pipeline_has_anomaly_flag": bool_text(is_anomaly),
+        "geometry_has_primary_object": bool_text(
             geo["geometry_has_primary_object"]
         ),
         "geometry_area": f"{geo.get('geometry_area', 0)}",
@@ -467,7 +480,7 @@ def analyze_image_features(img_path, source_root, geometry_settings, spot_settin
         "geometry_edge_damage_ratio": f"{geo.get('geometry_edge_damage_ratio', 0.0)}",
         "geometry_edge_segment_count": f"{geo.get('geometry_edge_segment_count', 0)}",
         "geometry_window_count": f"{geo.get('geometry_window_count', 0)}",
-        "geometry_has_center_hole": convert_bool_to_text(
+        "geometry_has_center_hole": bool_text(
             geo.get("geometry_has_center_hole", False)
         ),
         "geometry_fragment_count": f"{geo.get('geometry_fragment_count', 0)}",
@@ -475,7 +488,7 @@ def analyze_image_features(img_path, source_root, geometry_settings, spot_settin
         "geometry_window_area_list": json.dumps(
             geo.get("geometry_window_area_list", [])
         ),
-        "color_detection_flag": convert_bool_to_text(color_res["color_detection_flag"]),
+        "color_detection_flag": bool_text(color_res["color_detection_flag"]),
         "color_spot_area": f"{color_res.get('color_spot_area', 0)}",
         "color_texture_stddev": f"{color_res.get('color_texture_stddev', 0.0)}",
         "color_lab_stddev": f"{color_res.get('color_lab_stddev', 0.0)}",
@@ -484,7 +497,7 @@ def analyze_image_features(img_path, source_root, geometry_settings, spot_settin
     }
 
 
-def process_directory_to_csv(source_dir, csv_path, geometry_settings, spot_settings):
+def process_folder(source_dir, csv_path, geo_cfg, spot_cfg):
     if not os.path.exists(source_dir):
         print(f"Fehler: Verzeichnis '{source_dir}' nicht gefunden.")
         return
@@ -507,10 +520,10 @@ def process_directory_to_csv(source_dir, csv_path, geometry_settings, spot_setti
 
     rows = []
     for idx, img_path in enumerate(sorted(image_files), 1):
-        data = analyze_image_features(img_path, source_dir, geometry_settings, spot_settings)
+        data = analyze_image(img_path, source_dir, geo_cfg, spot_cfg)
         if data:
             rows.append(data)
-        display_progress_bar("  Bildverarbeitung", idx, total_files)
+        show_progress("  Bildverarbeitung", idx, total_files)
 
     with open(csv_path, "w", encoding="utf-8", newline="") as csv_file:
         writer = csv.DictWriter(csv_file, fieldnames=CSV_FIELDS)
@@ -521,14 +534,14 @@ def process_directory_to_csv(source_dir, csv_path, geometry_settings, spot_setti
         print()
 
 
-def run_image_processing_cli():
-    process_directory_to_csv(
-        PROCESSED_IMAGE_DIR,
-        PIPELINE_CSV_PATH,
-        GEOMETRY_SETTINGS,
-        SPOT_SETTINGS,
+def process_cli():
+    process_folder(
+        proc_dir,
+        pipe_csv,
+        geo_cfg,
+        spot_cfg,
     )
 
 
 if __name__ == "__main__":
-    run_image_processing_cli()
+    process_cli()

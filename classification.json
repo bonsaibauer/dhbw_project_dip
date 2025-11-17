@@ -1,4 +1,5 @@
 {
+  "symmetry_sensitivity": 1.1,
   "label_priorities": {
     "bruch": 0,
     "rest": 1,

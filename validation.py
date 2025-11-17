@@ -1,10 +1,52 @@
+import csv
 import os
 import shutil
 
-from data_management import path_rel
+
+def normalize_path(path):
+    """Bringt Pfadangaben in das Format der Annotationen."""
+    if not path:
+        return ""
+    normalized = path.replace("\\", "/")
+    marker = "Data/Images/"
+    if marker in normalized:
+        normalized = normalized.split(marker, 1)[1]
+    return normalized.lstrip("/")
 
 
-def tbl_show(headers, rows, indent="  "):
+def select_label(raw_label, label_priorities):
+    """Wählt das Label mit der höchsten Priorität aus."""
+    if not raw_label:
+        return None
+    candidates = [lbl.strip().lower() for lbl in raw_label.split(",") if lbl.strip()]
+    if not candidates:
+        return None
+    candidates.sort(key=lambda lbl: label_priorities.get(lbl, 100))
+    return candidates[0]
+
+
+def load_annotations(annotation_file, label_priorities, label_class_map):
+    """Lädt CSV-Annotationen und mapped sie auf die Zielklassen."""
+    annotations = {}
+    if not os.path.exists(annotation_file):
+        print(f"\nHinweis: '{annotation_file}' nicht gefunden, Validierung übersprungen.")
+        return annotations
+
+    with open(annotation_file, newline="", encoding="utf-8") as csv_file:
+        reader = csv.DictReader(csv_file)
+        for row in reader:
+            rel_path = normalize_path(row.get("image", ""))
+            if not rel_path:
+                continue
+            base_label = select_label(row.get("label", ""), label_priorities)
+            if not base_label:
+                continue
+            annotations[rel_path] = label_class_map.get(base_label, "Rest")
+
+    return annotations
+
+
+def render_table(headers, rows, indent="  "):
     """Gibt eine Tabelle mit fester Spaltenbreite aus."""
     widths = [len(header) for header in headers]
     for row in rows:
@@ -21,7 +63,7 @@ def tbl_show(headers, rows, indent="  "):
     print()
 
 
-def prio_map(label_priorities, label_class_map):
+def priority_chain(label_priorities, label_class_map):
     """Erstellt einen String mit der Priorisierungskette."""
     class_priority = {}
     for label, prio in label_priorities.items():
@@ -36,10 +78,10 @@ def prio_map(label_priorities, label_class_map):
     return " > ".join(ordered)
 
 
-def miss_copy(pred_entry, expected_label, falsch_dir):
+def copy_mismatch(pred_entry, expected_label, falsch_dir):
     """Kopiert ein fehlklassifiziertes Bild in den Kontrollordner."""
     os.makedirs(falsch_dir, exist_ok=True)
-    rel_name = path_rel(pred_entry.get("relative_path", ""))
+    rel_name = normalize_path(pred_entry.get("relative_path", ""))
     if not rel_name:
         rel_name = os.path.basename(pred_entry["source_path"])
     rel_name = rel_name.replace("/", "_")
@@ -51,7 +93,7 @@ def miss_copy(pred_entry, expected_label, falsch_dir):
     shutil.copy(pred_entry["source_path"], dest_path)
 
 
-def pred_chk(predictions, annotations, falsch_dir, label_priorities, label_class_map):
+def validate_predictions(predictions, annotations, falsch_dir, label_priorities, label_class_map):
     """Vergleicht Vorhersagen mit Annotationen und erstellt eine Auswertung."""
     if not annotations:
         print("\nKeine Annotationen geladen -> Validierung übersprungen.")
@@ -66,7 +108,7 @@ def pred_chk(predictions, annotations, falsch_dir, label_priorities, label_class
     per_class = {}
 
     for pred in predictions:
-        rel_path = path_rel(pred.get("relative_path", ""))
+        rel_path = normalize_path(pred.get("relative_path", ""))
         expected = annotations.get(rel_path)
         if expected is None:
             continue
@@ -96,8 +138,8 @@ def pred_chk(predictions, annotations, falsch_dir, label_priorities, label_class
     ]
     if skipped:
         summary_rows.append(["Ohne passende Annotation", str(skipped)])
-    tbl_show(summary_headers, summary_rows)
-    chain = prio_map(label_priorities, label_class_map)
+    render_table(summary_headers, summary_rows)
+    chain = priority_chain(label_priorities, label_class_map)
     if chain:
         print(f"Priorisierung (höchste Priorität links): {chain}\n")
 
@@ -118,8 +160,8 @@ def pred_chk(predictions, annotations, falsch_dir, label_priorities, label_class
                     f"{acc_cls:.2f}",
                 ]
             )
-        tbl_show(headers, rows)
+        render_table(headers, rows)
 
     if mismatches:
         for pred, expected in mismatches:
-            miss_copy(pred, expected, falsch_dir)
+            copy_mismatch(pred, expected, falsch_dir)

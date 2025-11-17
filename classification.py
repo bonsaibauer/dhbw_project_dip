@@ -5,13 +5,26 @@ import stat
 import cv2
 import numpy as np
 
-from image_processing import spot_det
-from data_management import path_rel
-from quality_control import tbl_show
-from segmentation import cnt_hier
+from image_processing import detect_spots
+from validation import render_table, normalize_path
 
 
-def geom_feat(contours, hierarchy, geometry_settings):
+def progress_bar(prefix, current, total, bar_len=30):
+    if total <= 0:
+        return
+    ratio = min(max(current / total, 0), 1)
+    filled = int(bar_len * ratio)
+    bar = "#" * filled + "-" * (bar_len - filled)
+    print(f"\r{prefix} [{bar}] {ratio * 100:5.1f}% ({current}/{total})", end="", flush=True)
+
+
+def extract_hierarchy(image):
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    _, thresh = cv2.threshold(gray, 10, 255, cv2.THRESH_BINARY)
+    return cv2.findContours(thresh, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+
+
+def compute_geometry(contours, hierarchy, geometry_settings):
     """Zählt Fenster, Fragmente und liefert Geometriekennzahlen."""
     eps_fact = geometry_settings["EPS_FACT"]
     hole_min = geometry_settings["HOLE_MIN"]
@@ -88,7 +101,7 @@ def geom_feat(contours, hierarchy, geometry_settings):
     return stats
 
 
-def sort_run(
+def run_pipeline(
     source_data_dir,
     sorted_data_dir,
     geometry_settings,
@@ -137,232 +150,239 @@ def sort_run(
     stats_counter = {k: 0 for k in classes}
     predictions = []
 
-    for root, _, files in os.walk(source_data_dir):
-        for file in files:
-            if not file.lower().endswith((".png", ".jpg", ".jpeg")):
-                continue
+    image_files = [
+        (root, file)
+        for root, _, files in os.walk(source_data_dir)
+        for file in files
+        if file.lower().endswith((".png", ".jpg", ".jpeg"))
+    ]
+    total_files = len(image_files)
+    if sort_log and total_files > 0:
+        print(f"Sortierung ({total_files} Bilder):")
 
-            img_path = os.path.join(root, file)
-            image = cv2.imread(img_path)
-            if image is None:
-                continue
+    for idx, (root, file) in enumerate(image_files, 1):
+        img_path = os.path.join(root, file)
+        image = cv2.imread(img_path)
+        if image is None:
+            continue
 
-            rel_path = path_rel(os.path.relpath(img_path, source_data_dir))
-            contours, hierarchy = cnt_hier(image)
-            geo = geom_feat(contours, hierarchy, geometry_settings)
+        rel_path = normalize_path(os.path.relpath(img_path, source_data_dir))
+        contours, hierarchy = extract_hierarchy(image)
+        geo = compute_geometry(contours, hierarchy, geometry_settings)
 
-            target_class = "Normal"
-            reason = "OK"
+        target_class = "Normal"
+        reason = "OK"
+        file_prefix = ""
+
+        total_holes = geo["num_windows"] + (1 if geo["has_center_hole"] else 0)
+        source_is_anomaly = "Anomaly" in img_path
+
+        areas = geo["window_areas"]
+        avg_window = np.mean(areas) if areas else 0
+        hull_ratio = (
+            geo.get("convex_area", 0) / max(1, geo.get("area", 0))
+            if geo.get("area")
+            else 0
+        )
+        edge_damage = geo.get("edge_damage", 0.0)
+        edge_segments = geo.get("edge_segments", 0)
+        window_ratio = (
+            (max(areas) / max(1, min(areas))) if areas and min(areas) > 0 else 1
+        )
+
+        symmetry_score = 0.0
+        if len(areas) > 0:
+            mean_a = np.mean(areas)
+            std_a = np.std(areas)
+            cv_value = std_a / mean_a if mean_a > 0 else 0
+            raw_score = 100 * (1 - (cv_value * sym_sen))
+            symmetry_score = max(0.0, min(100.0, round(raw_score, 1)))
+
+        rest_reason = None
+        rest_strength = 0
+        rest_window_hint = False
+        rest_multi_hint = False
+        rest_structural_hint = False
+        if source_is_anomaly:
+            rest_hints = []
+            if geo["fragment_count"] > 0:
+                rest_hints.append((3, f"Fragmente: {geo['fragment_count']}"))
+                rest_structural_hint = True
+            if geo.get("outer_count", 0) > 1:
+                strength = 2 if geo["outer_count"] > 2 else 1
+                rest_hints.append((strength, f"Mehrfachobj.: {geo['outer_count']}"))
+                rest_multi_hint = True
+                rest_structural_hint = True
+            if hull_ratio >= rhl_strg:
+                rest_hints.append((2, f"Hülle: {hull_ratio:.2f}"))
+                rest_structural_hint = True
+            elif hull_ratio >= rhl_base:
+                rest_hints.append((1, f"Hülle: {hull_ratio:.2f}"))
+            if areas and avg_window > 0:
+                if avg_window <= rwa_base and window_ratio >= rwr_base:
+                    strong = avg_window <= rwa_strg and window_ratio >= rwr_strg
+                    rest_hints.append(
+                        (2 if strong else 1, f"Fensterverh.: {window_ratio:.1f}")
+                    )
+                    rest_window_hint = True
+                if avg_window <= rwa_cmp:
+                    rest_hints.append(
+                        (1, f"Fenster klein: {avg_window:.0f}")
+                    )
+                    rest_window_hint = True
+                if avg_window >= rwa_lrg and window_ratio <= 1.3:
+                    rest_hints.append(
+                        (1, f"Fenster groß: {avg_window:.0f}")
+                    )
+                    rest_window_hint = True
+            if rest_hints:
+                rest_strength, rest_reason = max(rest_hints, key=lambda item: item[0])
+
+        if not rest_structural_hint:
+            rest_strength = min(rest_strength, 1)
+
+        if source_is_anomaly:
+            col_res = detect_spots(image, spot_settings)
+        else:
+            col_res = {
+                "is_defective": False,
+                "spot_area": 0,
+                "texture_std": 0,
+                "lab_std": 0,
+                "dark_delta": 0,
+                "median_intensity": 0,
+            }
+
+        color_candidate = None
+        color_strength = 0
+        if source_is_anomaly:
+            def assign_color(reason_text, strength):
+                nonlocal color_candidate, color_strength
+                if strength > color_strength:
+                    color_candidate = ("Farbfehler", reason_text)
+                    color_strength = strength
+
+            if col_res["is_defective"]:
+                assign_color(f"Fleck: {col_res['spot_area']}px", 2)
+            if col_res["spot_area"] >= col_str:
+                assign_color(f"Fleck: {col_res['spot_area']}px", 2)
+            if (
+                col_res["spot_area"] >= col_spt
+                and col_res.get("texture_std", 0) > txt_std
+                and symmetry_score >= col_sym
+            ):
+                assign_color(f"Textur: {col_res['texture_std']:.1f}", 1)
+            if (
+                col_res["spot_area"] >= col_lab
+                and col_res.get("lab_std", 0) > lab_std
+                and symmetry_score >= col_sym
+            ):
+                assign_color(f"Farbe: {col_res['lab_std']:.1f}", 1)
+            if col_res.get("dark_delta", 0) > drk_dlt and symmetry_score >= col_sym:
+                assign_color(f"Dunkelanteil: {col_res['dark_delta']:.1f}", 1)
+
+        if color_candidate and rest_strength > 1 and not rest_multi_hint and geo["fragment_count"] == 0:
+            rest_strength = 1
+
+        multi_outer_spot = (
+            source_is_anomaly
+            and geo.get("outer_count", 0) > 1
+            and col_res.get("spot_area", 0) >= rmult_sp
+        )
+        if multi_outer_spot:
+            rest_strength = max(rest_strength, 2)
+            rest_reason = rest_reason or f"Mehrfachobj.: {geo['outer_count']}"
+
+        if color_candidate and rest_strength > 1 and not multi_outer_spot:
+            rest_strength = 1
+
+        if not geo["has_object"]:
+            target_class = "Rest"
+            reason = "Kein Objekt"
+        elif total_holes < 7:
+            if color_candidate and color_strength >= 2:
+                target_class, reason = color_candidate
+            elif rest_strength >= 2:
+                target_class = "Rest"
+                reason = rest_reason or f"Unklare Form ({total_holes})"
+            else:
+                target_class = "Bruch"
+                reason = f"Zu wenig Löcher: {total_holes}"
+        elif total_holes > 7:
+            target_class = "Rest"
+            reason = f"Zu viele Fragmente: {total_holes}"
+        else:
+            if source_is_anomaly and rest_strength >= 2:
+                target_class = "Rest"
+                reason = rest_reason or "Starker Resthinweis"
+            else:
+                classified = False
+                if color_candidate and (color_strength >= 2 or rest_strength <= 1):
+                    target_class, reason = color_candidate
+                    classified = True
+                if (
+                    not classified
+                    and (edge_damage >= edge_dmg or edge_segments >= edge_seg)
+                    and color_strength < 2
+                ):
+                    target_class = "Bruch"
+                    reason = f"Kante: {edge_damage:.2f}"
+                    classified = True
+                if not classified and color_candidate:
+                    target_class, reason = color_candidate
+                    classified = True
+                else:
+                    if target_class == "Normal":
+                        reason = f"Symmetrie: {symmetry_score:.2f}%"
+
+                if not classified:
+                    if target_class == "Normal" and rest_strength >= 1 and rest_reason:
+                        target_class = "Rest"
+                        reason = rest_reason
+                    elif source_is_anomaly and symmetry_score < brk_sym:
+                        target_class = "Bruch"
+                        reason = f"Asymmetrie: {symmetry_score:.2f}%"
+                    elif target_class == "Normal":
+                        reason = f"Symmetrie: {symmetry_score:.2f}%"
+
+        if target_class == "Normal":
+            file_prefix = f"{symmetry_score:06.2f}_"
+            if not reason or reason == "OK":
+                reason = f"Symmetrie: {symmetry_score:.2f}%"
+        else:
             file_prefix = ""
 
-            total_holes = geo["num_windows"] + (1 if geo["has_center_hole"] else 0)
-            source_is_anomaly = "Anomaly" in img_path
+        new_filename = f"{file_prefix}{file}"
+        dest_path = os.path.join(sorted_data_dir, target_class, new_filename)
+        shutil.copy(img_path, dest_path)
 
-            areas = geo["window_areas"]
-            avg_window = np.mean(areas) if areas else 0
-            hull_ratio = (
-                geo.get("convex_area", 0) / max(1, geo.get("area", 0))
-                if geo.get("area")
-                else 0
-            )
-            edge_damage = geo.get("edge_damage", 0.0)
-            edge_segments = geo.get("edge_segments", 0)
-            window_ratio = (
-                (max(areas) / max(1, min(areas))) if areas and min(areas) > 0 else 1
-            )
+        stats_counter[target_class] += 1
 
-            symmetry_score = 0.0
-            if len(areas) > 0:
-                mean_a = np.mean(areas)
-                std_a = np.std(areas)
-                cv_value = std_a / mean_a if mean_a > 0 else 0
-                raw_score = 100 * (1 - (cv_value * sym_sen))
-                symmetry_score = max(0.0, min(100.0, round(raw_score, 1)))
+        predictions.append(
+            {
+                "relative_path": rel_path,
+                "predicted": target_class,
+                "source_path": img_path,
+                "destination_path": dest_path,
+                "reason": reason,
+                "original_name": file,
+            }
+        )
 
-            rest_reason = None
-            rest_strength = 0
-            rest_window_hint = False
-            rest_multi_hint = False
-            rest_structural_hint = False
-            if source_is_anomaly:
-                rest_hints = []
-                if geo["fragment_count"] > 0:
-                    rest_hints.append((3, f"Fragmente: {geo['fragment_count']}"))
-                    rest_structural_hint = True
-                if geo.get("outer_count", 0) > 1:
-                    strength = 2 if geo["outer_count"] > 2 else 1
-                    rest_hints.append((strength, f"Mehrfachobj.: {geo['outer_count']}"))
-                    rest_multi_hint = True
-                    rest_structural_hint = True
-                if hull_ratio >= rhl_strg:
-                    rest_hints.append((2, f"Hülle: {hull_ratio:.2f}"))
-                    rest_structural_hint = True
-                elif hull_ratio >= rhl_base:
-                    rest_hints.append((1, f"Hülle: {hull_ratio:.2f}"))
-                if areas and avg_window > 0:
-                    if avg_window <= rwa_base and window_ratio >= rwr_base:
-                        strong = avg_window <= rwa_strg and window_ratio >= rwr_strg
-                        rest_hints.append(
-                            (2 if strong else 1, f"Fensterverh.: {window_ratio:.1f}")
-                        )
-                        rest_window_hint = True
-                    if avg_window <= rwa_cmp:
-                        rest_hints.append(
-                            (1, f"Fenster klein: {avg_window:.0f}")
-                        )
-                        rest_window_hint = True
-                    if avg_window >= rwa_lrg and window_ratio <= 1.3:
-                        rest_hints.append(
-                            (1, f"Fenster groß: {avg_window:.0f}")
-                        )
-                        rest_window_hint = True
-                if rest_hints:
-                    rest_strength, rest_reason = max(rest_hints, key=lambda item: item[0])
+        if sort_log and total_files > 0:
+            progress_bar("  Sortierung", idx, total_files)
 
-            if not rest_structural_hint:
-                rest_strength = min(rest_strength, 1)
-
-            if source_is_anomaly:
-                col_res = spot_det(image, spot_settings)
-            else:
-                col_res = {
-                    "is_defective": False,
-                    "spot_area": 0,
-                    "texture_std": 0,
-                    "lab_std": 0,
-                    "dark_delta": 0,
-                    "median_intensity": 0,
-                }
-
-            color_candidate = None
-            color_strength = 0
-            if source_is_anomaly:
-                def assign_color(reason_text, strength):
-                    nonlocal color_candidate, color_strength
-                    if strength > color_strength:
-                        color_candidate = ("Farbfehler", reason_text)
-                        color_strength = strength
-
-                if col_res["is_defective"]:
-                    assign_color(f"Fleck: {col_res['spot_area']}px", 2)
-                if col_res["spot_area"] >= col_str:
-                    assign_color(f"Fleck: {col_res['spot_area']}px", 2)
-                if (
-                    col_res["spot_area"] >= col_spt
-                    and col_res.get("texture_std", 0) > txt_std
-                    and symmetry_score >= col_sym
-                ):
-                    assign_color(f"Textur: {col_res['texture_std']:.1f}", 1)
-                if (
-                    col_res["spot_area"] >= col_lab
-                    and col_res.get("lab_std", 0) > lab_std
-                    and symmetry_score >= col_sym
-                ):
-                    assign_color(f"Farbe: {col_res['lab_std']:.1f}", 1)
-                if col_res.get("dark_delta", 0) > drk_dlt and symmetry_score >= col_sym:
-                    assign_color(f"Dunkelanteil: {col_res['dark_delta']:.1f}", 1)
-
-            if color_candidate and rest_strength > 1 and not rest_multi_hint and geo["fragment_count"] == 0:
-                rest_strength = 1
-
-            multi_outer_spot = (
-                source_is_anomaly
-                and geo.get("outer_count", 0) > 1
-                and col_res.get("spot_area", 0) >= rmult_sp
-            )
-            if multi_outer_spot:
-                rest_strength = max(rest_strength, 2)
-                rest_reason = rest_reason or f"Mehrfachobj.: {geo['outer_count']}"
-
-            if color_candidate and rest_strength > 1 and not multi_outer_spot:
-                rest_strength = 1
-
-            if not geo["has_object"]:
-                target_class = "Rest"
-                reason = "Kein Objekt"
-            elif total_holes < 7:
-                if color_candidate and color_strength >= 2:
-                    target_class, reason = color_candidate
-                elif rest_strength >= 2:
-                    target_class = "Rest"
-                    reason = rest_reason or f"Unklare Form ({total_holes})"
-                else:
-                    target_class = "Bruch"
-                    reason = f"Zu wenig Löcher: {total_holes}"
-            elif total_holes > 7:
-                target_class = "Rest"
-                reason = f"Zu viele Fragmente: {total_holes}"
-            else:
-                if source_is_anomaly and rest_strength >= 2:
-                    target_class = "Rest"
-                    reason = rest_reason or "Starker Resthinweis"
-                else:
-                    classified = False
-                    if color_candidate and (color_strength >= 2 or rest_strength <= 1):
-                        target_class, reason = color_candidate
-                        classified = True
-                    if (
-                        not classified
-                        and (edge_damage >= edge_dmg or edge_segments >= edge_seg)
-                        and color_strength < 2
-                    ):
-                        target_class = "Bruch"
-                        reason = f"Kante: {edge_damage:.2f}"
-                        classified = True
-                    if not classified and color_candidate:
-                        target_class, reason = color_candidate
-                        classified = True
-                    else:
-                        if target_class == "Normal":
-                            reason = f"Symmetrie: {symmetry_score:.2f}%"
-
-                    if not classified:
-                        if target_class == "Normal" and rest_strength >= 1 and rest_reason:
-                            target_class = "Rest"
-                            reason = rest_reason
-                        elif source_is_anomaly and symmetry_score < brk_sym:
-                            target_class = "Bruch"
-                            reason = f"Asymmetrie: {symmetry_score:.2f}%"
-                        elif target_class == "Normal":
-                            reason = f"Symmetrie: {symmetry_score:.2f}%"
-
-            if target_class == "Normal":
-                file_prefix = f"{symmetry_score:06.2f}_"
-                if not reason or reason == "OK":
-                    reason = f"Symmetrie: {symmetry_score:.2f}%"
-            else:
-                file_prefix = ""
-
-            new_filename = f"{file_prefix}{file}"
-            dest_path = os.path.join(sorted_data_dir, target_class, new_filename)
-            shutil.copy(img_path, dest_path)
-
-            stats_counter[target_class] += 1
-            if sort_log:
-                rel_dest = os.path.relpath(dest_path, sorted_data_dir).replace("\\", "/")
-                print(
-                    f"[{target_class}] {new_filename} | Grund: {reason} | Ziel: {rel_dest}"
-                )
-
-            predictions.append(
-                {
-                    "relative_path": rel_path,
-                    "predicted": target_class,
-                    "source_path": img_path,
-                    "destination_path": dest_path,
-                    "reason": reason,
-                    "original_name": file,
-                }
-            )
+    if sort_log and total_files > 0:
+        print("\nSortierung abgeschlossen.")
 
     total_sorted = sum(stats_counter.values())
-    print("\nSortierung abgeschlossen:\n")
+    print("\nErgebnisübersicht:\n")
     headers = ["Klasse", "Anzahl", "Anteil %"]
     rows = []
     for cls in classes:
         amount = stats_counter[cls]
         share = (amount / total_sorted * 100) if total_sorted else 0
         rows.append([cls, str(amount), f"{share:.1f}"])
-    tbl_show(headers, rows)
+    render_table(headers, rows)
 
     return predictions

@@ -1,15 +1,14 @@
 import os
 import numpy as np
 
-from data_management import anno_load
-from classification import sort_run
-from quality_control import pred_chk
-from segmentation import prep_set
+from classification import run_pipeline
+from validation import validate_predictions, load_annotations
+from segmentation import process_directory
 
 # ==========================================
 # ANPASSBARE PARAMETER & VERZEICHNISSE
 # ==========================================
-# --- Pfad-Setup (prep_set, sort_run, pred_chk, miss_copy) ---
+# --- Pfad-Setup (prep_set, run_pipeline, validate_predictions, copy_mismatch, load_annotations) ---
 RAW_DIR = os.path.join("data", "Images")  # Pfad zur Rohquelle; Ändern = anderer Input; Min/Max: gültiger Ordner.
 OUT_DIR = "output"  # Haupt-Ausgabepfad; Kürzer -> anderer Speicherort; Min/Max: gültiger Pfadstring.
 PROC_DIR = os.path.join(OUT_DIR, "processed")  # Zwischenablage der Preprocessing-Ergebnisse; bei Änderung neue Struktur beachten; Min/Max: gültiger Unterordner.
@@ -26,7 +25,7 @@ WARP_SZ = (600, 400)  # Warp-Ziel vor Resize; größer = mehr Detail, kleiner = 
 TGT_W = 400  # Endbreite des Warps; höher = mehr Pixel, niedriger = schnellere Analyse; Range 200–600 px.
 TGT_H = 400  # Endhöhe des Warps; analog zu TGT_W; Range 200–600 px.
 
-# --- Geometrie-Features (cnt_hier, geom_feat, sort_run) ---
+# --- Geometrie-Features (extract_hierarchy, compute_geometry, run_pipeline) ---
 EPS_FACT = 0.04  # Approx-Genauigkeit für Konturen; kleiner = mehr Ecken, größer = glatter; Range 0.01–0.1.
 HOLE_MIN = 100  # Kleinste Lochfläche; höher = ignoriert Mini-Löcher, niedriger = mehr Fehlzählungen; Range 10–400 px.
 WIND_MIN = 500  # Mindestfläche für Fenster; höher = filtert kleine Fenster, niedriger = zählt Störungen; Range 200–2000 px.
@@ -42,7 +41,7 @@ RWR_BASE = 3.0  # Fensterflächenverhältnis Basisschwelle; höher = nur extreme
 RWR_STRG = 4.5  # Starker Fenster-Verhältnis-Check; höher = strenger, niedriger = früh starke Hinweise; Range 2.5–6.
 RMULT_SP = 120  # Spotfläche für Mehrfachobjekt-Bewertung; höher = ignoriert kleinere Flecken, niedriger = reagiert früher; Range 40–250 px.
 
-# --- Farb-/Spotprüfung (spot_det, sort_run) ---
+# --- Farb-/Spotprüfung (detect_spots, run_pipeline) ---
 ERO_KN = (5, 5)  # Kernel für grobe Erosion; größer = mehr Randverlust, kleiner = mehr Rauschen; Range 3–9 px.
 ERO_ITER = 4  # Anzahl grober Erosionen; höher = glatter Rand, niedriger = mehr Kantenrauschen; Range 2–6.
 BKH_KN = (15, 15)  # Kernel für Blackhat; größer = sucht größere Flecken, kleiner = empfindlich auf Rauschen; Range 7–25 px.
@@ -67,16 +66,16 @@ DRK_DLT = 18  # Mindestrand für Dark-Delta; höher = nur starker Kontrast, nied
 DRK_MED = 80  # Mindestmedian für Dark-Check; höher = nur helle Snacks, niedriger = auch dunkle Snacks; Range 40–120.
 DRK_SPT = 30  # Mindestspotfläche für Dark-Alarm; höher = ignoriert Kleines, niedriger = empfindlich; Range 10–80 px.
 
-# --- Kantenschaden & Symmetrie (sort_run) ---
+# --- Kantenschaden & Symmetrie (run_pipeline) ---
 EDGE_DMG = 1.05  # Verhältnis Hülle/Perimeter; höher = toleranter, niedriger = früher Bruchalarm; Range 1.0–1.5.
 EDGE_SEG = 14  # Max. Kantensegmente; höher = erlaubt zackigere Formen, niedriger = streng; Range 8–20.
 SYM_SEN = 3.0  # Faktor für Symmetriepenalty; höher = Symmetrie strenger, niedriger = lockerer; Range 1.5–4.5.
 
 # Entscheidungsbaum (Detailfluss):
-#   Level 0 – Feature-Sammlung (Zeilen 559–700, `sort_run`):
-#       Erzeugt `geo` via `geom_feat` (Zeilen 235–292) und Farbmetriken via `spot_det` (Zeilen 294–371).
+#   Level 0 – Feature-Sammlung (Zeilen 559–700, `run_pipeline`):
+#       Erzeugt `geo` via `compute_geometry` (Zeilen 235–292) und Farbmetriken via `detect_spots` (Zeilen 294–371).
 #       Setzt Resthinweise (`rest_hints`) über `FRAG_MIN`, `RHL_*`, `RWA_*`, `RWR_*`, `RMULT_SP` und berechnet Symmetrie (`SYM_SEN`).
-#       Farbkanal greift nur bei Anomalien: `spot_det` liefert `spot_area`, `texture_std`, `lab_std`, `dark_delta`; Schwellwerte `SPT_*`, `COL_*`, `TXT_STD`, `LAB_STD`, `DRK_*`.
+#       Farbkanal greift nur bei Anomalien: `detect_spots` liefert `spot_area`, `texture_std`, `lab_std`, `dark_delta`; Schwellwerte `SPT_*`, `COL_*`, `TXT_STD`, `LAB_STD`, `DRK_*`.
 #   Level 1 – Guards & Objekt-Existenz (Zeilen 702–709):
 #       Falls `geo["has_object"]` False → Klasse „Rest“ („Kein Objekt“).
 #       Setzt `total_holes = geo["num_windows"] + center`, Basis für Level 2.
@@ -86,7 +85,7 @@ SYM_SEN = 3.0  # Faktor für Symmetriepenalty; höher = Symmetrie strenger, nied
 #       Wenn `total_holes > 7`: direkt „Rest“ wegen Fragmentierung (`FRAG_MIN`, `RMULT_SP` spiegeln Ursache im `reason`).
 #   Level 3 – Genau 7 Öffnungen (Zeilen 725–752):
 #       (a) Rest-Hardhit: `rest_strength >= 2` → „Rest“ (Ursprung `RHL_*`, `RWA_*`, `RWR_*`, Mehrfachkonturen).
-#       (b) Starke Farbe: `color_strength >= 2` → „Farbfehler“ (stammt aus `spot_det`-Schwellen `COL_STR`, `COL_SPT`, `COL_LAB`).
+#       (b) Starke Farbe: `color_strength >= 2` → „Farbfehler“ (stammt aus `detect_spots`-Schwellen `COL_STR`, `COL_SPT`, `COL_LAB`).
 #       (c) Kantenbruch: `edge_damage >= EDGE_DMG` oder `edge_segments >= EDGE_SEG` → „Bruch“.
 #       (d) Weiche Farbe: `color_candidate` bei `rest_strength <= 1` -> „Farbfehler“.
 #       (e) Symmetrie-Fallback: Wenn nichts anderes zieht, nutzt `symmetry_score` (berechnet via `SYM_SEN`, `BRK_SYM`) um zwischen „Normal“, „Bruch“ oder „Rest“ zu unterscheiden.
@@ -176,10 +175,10 @@ if __name__ == '__main__':
     os.makedirs(OUT_DIR, exist_ok=True)
 
     if os.path.exists(RAW_DIR):
-        prep_set(RAW_DIR, PROC_DIR, PREPROCESSING_PARAMS)
+        process_directory(RAW_DIR, PROC_DIR, PREPROCESSING_PARAMS)
 
         if os.path.exists(PROC_DIR):
-            predictions = sort_run(
+            predictions = run_pipeline(
                 PROC_DIR,
                 SORT_DIR,
                 GEOMETRY_PARAMS,
@@ -187,8 +186,8 @@ if __name__ == '__main__':
                 CLASSIFIER_RULES,
                 SORT_LOG,
             )
-            annotations = anno_load(ANNO_FILE, LABEL_PRIORITIES, LABEL_CLASS_MAP)
-            pred_chk(
+            annotations = load_annotations(ANNO_FILE, LABEL_PRIORITIES, LABEL_CLASS_MAP)
+            validate_predictions(
                 predictions,
                 annotations,
                 FAIL_DIR,

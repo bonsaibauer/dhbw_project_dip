@@ -4,7 +4,7 @@ import numpy as np
 
 # --- Spot-/Farbprüfung Helfer ---
 
-def create_object_masks(image, ero_kernel, ero_iterations):
+def create_masks(image, ero_kernel, ero_iterations):
     """Erzeugt Masken für Objekt und Analysebereich."""
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     _, mask_obj = cv2.threshold(gray, 10, 255, cv2.THRESH_BINARY)
@@ -17,19 +17,19 @@ def compute_blackhat(gray, kernel):
     return cv2.morphologyEx(gray, cv2.MORPH_BLACKHAT, kernel)
 
 
-def detect_defects_from_contrast(blackhat_img, contrast_threshold):
+def detect_contrast(blackhat_img, contrast_threshold):
     """Segmentiert Defekte anhand eines Kontrastschwellwerts."""
     _, mask_defects = cv2.threshold(blackhat_img, contrast_threshold, 255, cv2.THRESH_BINARY)
     return mask_defects
 
 
-def filter_valid_defects(mask_defects, mask_analysis, noise_kernel):
+def filter_defects(mask_defects, mask_analysis, noise_kernel):
     """Begrenzt Defekte auf den Snack und filtert Kleinstrauschen."""
     valid = cv2.bitwise_and(mask_defects, mask_defects, mask=mask_analysis)
     return cv2.morphologyEx(valid, cv2.MORPH_OPEN, noise_kernel)
 
 
-def compute_texture_features(gray, mask_analysis, dark_percentile):
+def texture_features(gray, mask_analysis, dark_percentile):
     """Berechnet Texturstreuung, Median und Dark-Delta."""
     object_pixels = gray[mask_analysis == 255]
     if object_pixels.size == 0:
@@ -41,7 +41,7 @@ def compute_texture_features(gray, mask_analysis, dark_percentile):
     return texture_std, median_intensity, dark_delta
 
 
-def compute_color_features(image, mask_analysis):
+def color_features(image, mask_analysis):
     """Berechnet LAB-Standardabweichung innerhalb der Objektmaske."""
     lab = cv2.cvtColor(image, cv2.COLOR_BGR2LAB)
     a_channel = lab[:, :, 1]
@@ -51,7 +51,7 @@ def compute_color_features(image, mask_analysis):
     return float(np.std(masked_values))
 
 
-def erode_inner_mask(mask, kernel, iterations):
+def erode_mask(mask, kernel, iterations):
     """Erzeugt eine enger gefasste Maske und liefert Fläche zurück."""
     if iterations <= 0:
         return mask, cv2.countNonZero(mask)
@@ -59,21 +59,21 @@ def erode_inner_mask(mask, kernel, iterations):
     return eroded, cv2.countNonZero(eroded)
 
 
-def measure_spot_ratio(spot_area, object_area):
+def spot_ratio(spot_area, object_area):
     """Hilfsfunktion für robuste Quotientenberechnung."""
     return spot_area / max(1, object_area)
 
 
-def evaluate_primary_defect(spot_area, object_area, inner_spot_area, ratio_limit, inner_ratio_limit, spot_threshold):
+def primary_defect(spot_area, object_area, inner_spot_area, ratio_limit, inner_ratio_limit, spot_threshold):
     """Prüft die Hauptbedingungen (Fläche + Verhältnis) für einen Defekt."""
-    ratio = measure_spot_ratio(spot_area, object_area)
+    ratio = spot_ratio(spot_area, object_area)
     meets_ratio = (ratio >= ratio_limit) if ratio_limit > 0 else True
     inner_ratio = inner_spot_area / max(1, spot_area)
     meets_inner = (inner_ratio >= inner_ratio_limit) if spot_area > 0 else False
     return spot_area > spot_threshold and meets_ratio and meets_inner
 
 
-def fine_defect_pass(mask_obj, mask_defects, noise_kernel, ero_kernel, fine_iterations, inner_iterations, inner_ratio_limit, fine_ratio, spot_final_threshold):
+def refine_defects(mask_obj, mask_defects, noise_kernel, ero_kernel, fine_iterations, inner_iterations, inner_ratio_limit, fine_ratio, spot_final_threshold):
     """Führt die feinere Erosionsvariante aus, um kleinere Defekte zu erkennen."""
     if fine_iterations <= 0:
         return False, 0
@@ -84,7 +84,7 @@ def fine_defect_pass(mask_obj, mask_defects, noise_kernel, ero_kernel, fine_iter
     valid_fine = cv2.morphologyEx(valid_fine, cv2.MORPH_OPEN, noise_kernel)
     fine_spot_area = cv2.countNonZero(valid_fine)
 
-    fine_ratio_val = measure_spot_ratio(fine_spot_area, fine_area_obj)
+    fine_ratio_val = spot_ratio(fine_spot_area, fine_area_obj)
     meets_fine_ratio = (fine_ratio_val >= fine_ratio) if fine_ratio > 0 else True
 
     if inner_iterations > 0:
@@ -105,17 +105,17 @@ def fine_defect_pass(mask_obj, mask_defects, noise_kernel, ero_kernel, fine_iter
     return passes, fine_spot_area
 
 
-def build_debug_view(blackhat_img, mask_analysis):
+def debug_view(blackhat_img, mask_analysis):
     """Erzeugt das Debug-Bild mit maskiertem Blackhat-Result."""
     return cv2.bitwise_and(blackhat_img, blackhat_img, mask=mask_analysis)
 
 
-def spot_det(image, settings, debug=False):
+def detect_spots(image, settings, debug=False):
     """Führt die Farb- und Texturprüfung mit den übergebenen Parametern aus."""
     ero_kernel = np.ones(settings["ERO_KN"], np.uint8)
     noise_kernel = np.ones(settings["NOI_KN"], np.uint8)
 
-    gray, mask_obj, mask_analysis = create_object_masks(
+    gray, mask_obj, mask_analysis = create_masks(
         image,
         ero_kernel,
         settings["ERO_ITER"],
@@ -124,23 +124,23 @@ def spot_det(image, settings, debug=False):
 
     blackhat_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, settings["BKH_KN"])
     blackhat_img = compute_blackhat(gray, blackhat_kernel)
-    mask_defects = detect_defects_from_contrast(blackhat_img, settings["BKH_CON"])
-    valid_defects = filter_valid_defects(mask_defects, mask_analysis, noise_kernel)
+    mask_defects = detect_contrast(blackhat_img, settings["BKH_CON"])
+    valid_defects = filter_defects(mask_defects, mask_analysis, noise_kernel)
 
     spot_area = cv2.countNonZero(valid_defects)
 
-    texture_std, median_intensity, dark_delta = compute_texture_features(
+    texture_std, median_intensity, dark_delta = texture_features(
         gray,
         mask_analysis,
         settings["DRK_PCT"],
     )
-    lab_std = compute_color_features(image, mask_analysis)
+    lab_std = color_features(image, mask_analysis)
 
-    inner_mask, _ = erode_inner_mask(mask_analysis, ero_kernel, settings["INER_ITR"])
+    inner_mask, _ = erode_mask(mask_analysis, ero_kernel, settings["INER_ITR"])
     inner_valid = cv2.bitwise_and(valid_defects, valid_defects, mask=inner_mask)
     inner_spot_area = cv2.countNonZero(inner_valid)
 
-    is_defective = evaluate_primary_defect(
+    is_defective = primary_defect(
         spot_area,
         object_area,
         inner_spot_area,
@@ -150,7 +150,7 @@ def spot_det(image, settings, debug=False):
     )
 
     if not is_defective:
-        fine_passed, fine_area = fine_defect_pass(
+        fine_passed, fine_area = refine_defects(
             mask_obj,
             mask_defects,
             noise_kernel,
@@ -165,9 +165,9 @@ def spot_det(image, settings, debug=False):
             is_defective = True
             spot_area = fine_area
 
-    debug_view = None
+    debug_image = None
     if debug:
-        debug_view = build_debug_view(blackhat_img, mask_analysis)
+        debug_image = debug_view(blackhat_img, mask_analysis)
 
     result = {
         "is_defective": is_defective,
@@ -178,5 +178,5 @@ def spot_det(image, settings, debug=False):
         "median_intensity": median_intensity,
     }
     if debug:
-        result["debug_image"] = debug_view
+        result["debug_image"] = debug_image
     return result

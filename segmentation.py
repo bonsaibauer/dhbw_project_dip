@@ -1,9 +1,85 @@
 import os
 import shutil
+import stat
 
 import cv2
+import numpy as np
 
-from image_processing import prep_img
+
+def remove_green_background(image, hsv_lo, hsv_hi):
+    """Maskiert alles außer dem nicht-grünen Objekt."""
+    hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+    mask_green = cv2.inRange(hsv, hsv_lo, hsv_hi)
+    mask_object = cv2.bitwise_not(mask_green)
+    return cv2.bitwise_and(image, image, mask=mask_object)
+
+
+def extract_significant_contours(masked_image, min_area):
+    """Findet alle Konturen oberhalb des Mindestflächen-Thresholds."""
+    gray = cv2.cvtColor(masked_image, cv2.COLOR_BGR2GRAY)
+    _, thresh = cv2.threshold(gray, 10, 255, cv2.THRESH_BINARY)
+    contours, _ = cv2.findContours(thresh, cv2.RETR_TREE, cv2.CHAIN_APPROX_NONE)
+    return [cnt for cnt in contours if cv2.contourArea(cnt) > min_area]
+
+
+def normalize_rect(rect):
+    """Erzwingt Querformat für MinAreaRect, damit der Warp stabil bleibt."""
+    if rect[1][1] > rect[1][0]:
+        return (rect[0], (rect[1][1], rect[1][0]), rect[2] - 90)
+    return rect
+
+
+def build_warp_matrix(contour, warp_size):
+    """Erstellt die Projektionsmatrix für den perspektivischen Warp."""
+    rect = normalize_rect(cv2.minAreaRect(contour))
+    box_points = cv2.boxPoints(rect).astype("float32")
+    dst_pts = np.array(
+        [
+            [0, warp_size[1] - 1],
+            [0, 0],
+            [warp_size[0] - 1, 0],
+            [warp_size[0] - 1, warp_size[1] - 1],
+        ],
+        dtype="float32",
+    )
+    return cv2.getPerspectiveTransform(box_points, dst_pts)
+
+
+def isolate_contour_region(masked_image, contour):
+    """Nullt alles außerhalb der Kontur und liefert das zugeschnittene Bild."""
+    isolated = masked_image.copy()
+    mask = np.zeros(masked_image.shape[:2], dtype=np.uint8)
+    cv2.drawContours(mask, [contour], -1, 255, cv2.FILLED)
+    isolated[mask == 0] = (0, 0, 0)
+    return isolated
+
+
+def warp_and_resize(image, contour, warp_size, target_width, target_height):
+    """Projiziert die Konturfläche in ein normiertes Koordinatensystem."""
+    isolated = isolate_contour_region(image, contour)
+    matrix = build_warp_matrix(contour, warp_size)
+    warped = cv2.warpPerspective(isolated, matrix, warp_size, cv2.INTER_CUBIC)
+    return cv2.resize(warped, (target_width, target_height), interpolation=cv2.INTER_CUBIC)
+
+
+def prep_img(image, result, settings):
+    """Zieht den grünen Hintergrund ab und liefert einen normalisierten Warp."""
+    masked = remove_green_background(image, settings["HSV_LO"], settings["HSV_HI"])
+    contours = extract_significant_contours(masked, settings["CNT_MINA"])
+
+    processed = False
+    for contour in contours:
+        warped = warp_and_resize(
+            masked,
+            contour,
+            settings["WARP_SZ"],
+            settings["TGT_W"],
+            settings["TGT_H"],
+        )
+        result.append({"name": "Result", "data": warped})
+        processed = True
+
+    return processed
 
 
 def prog_bar(prefix, current, total, bar_length=30):
@@ -30,7 +106,15 @@ def img_list(source_dir):
 def prep_set(source_dir, target_dir, preprocess_settings):
     """Segmentiert alle Rohbilder und speichert die Ergebnisse im Zielordner."""
     if os.path.exists(target_dir):
-        shutil.rmtree(target_dir)
+        def _on_rm_error(func, path, exc_info):
+            error = exc_info[1]
+            if isinstance(error, PermissionError):
+                os.chmod(path, stat.S_IWRITE)
+                func(path)
+            else:
+                raise
+
+        shutil.rmtree(target_dir, onerror=_on_rm_error)
     os.makedirs(target_dir)
 
     image_files = img_list(source_dir)

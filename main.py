@@ -115,14 +115,6 @@ LABEL_CLASS_MAP = {
     "other": "Rest",
 }
 
-CLASS_DESCRIPTIONS = {
-    "Normal": "7 Löcher, symmetrisch und ohne sichtbare Flecken.",
-    "Bruch": "Lochanzahl passt nicht -> Bruch oder Fragment.",
-    "Farbfehler": "Flecken/Schatten erkannt, obwohl Geometrie ok.",
-    "Rest": "Kein Objekt oder unklare Form/Fall außerhalb der Regeln.",
-}
-
-
 
 PREPROCESSING_PARAMS = {
     "HSV_LO": HSV_LO,
@@ -193,7 +185,6 @@ if __name__ == '__main__':
                 GEOMETRY_PARAMS,
                 SPOT_PARAMS,
                 CLASSIFIER_RULES,
-                CLASS_DESCRIPTIONS,
                 SORT_LOG,
             )
             annotations = anno_load(ANNO_FILE, LABEL_PRIORITIES, LABEL_CLASS_MAP)

@@ -1,5 +1,6 @@
 import os
 import shutil
+import stat
 
 import cv2
 import numpy as np
@@ -93,7 +94,6 @@ def sort_run(
     geometry_settings,
     spot_settings,
     classifier_rules,
-    class_descriptions,
     sort_log,
 ):
     """Komplette Klassifikationspipeline inkl. Dateikopie."""
@@ -122,12 +122,19 @@ def sort_run(
     classes = ["Normal", "Bruch", "Farbfehler", "Rest"]
 
     if os.path.exists(sorted_data_dir):
-        shutil.rmtree(sorted_data_dir)
+        def _on_rm_error(func, path, exc_info):
+            error = exc_info[1]
+            if isinstance(error, PermissionError):
+                os.chmod(path, stat.S_IWRITE)
+                func(path)
+            else:
+                raise
+
+        shutil.rmtree(sorted_data_dir, onerror=_on_rm_error)
     for cls in classes:
         os.makedirs(os.path.join(sorted_data_dir, cls), exist_ok=True)
 
     stats_counter = {k: 0 for k in classes}
-    reason_counter = {k: {} for k in classes}
     predictions = []
 
     for root, _, files in os.walk(source_data_dir):
@@ -331,9 +338,6 @@ def sort_run(
             shutil.copy(img_path, dest_path)
 
             stats_counter[target_class] += 1
-            reason_counter[target_class][reason] = (
-                reason_counter[target_class].get(reason, 0) + 1
-            )
             if sort_log:
                 rel_dest = os.path.relpath(dest_path, sorted_data_dir).replace("\\", "/")
                 print(
@@ -353,19 +357,12 @@ def sort_run(
 
     total_sorted = sum(stats_counter.values())
     print("\nSortierung abgeschlossen:\n")
-    headers = ["Klasse", "Anzahl", "Anteil %", "Beschreibung", "Häufigster Grund"]
+    headers = ["Klasse", "Anzahl", "Anteil %"]
     rows = []
     for cls in classes:
         amount = stats_counter[cls]
         share = (amount / total_sorted * 100) if total_sorted else 0
-        desc = class_descriptions.get(cls, "")
-        reason_text = "-"
-        if reason_counter[cls]:
-            top_reason, top_count = max(
-                reason_counter[cls].items(), key=lambda kv: kv[1]
-            )
-            reason_text = f"{top_reason} ({top_count}x)"
-        rows.append([cls, str(amount), f"{share:.1f}", desc, reason_text])
+        rows.append([cls, str(amount), f"{share:.1f}"])
     tbl_show(headers, rows)
 
     return predictions

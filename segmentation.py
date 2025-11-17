@@ -5,7 +5,7 @@ import stat
 import cv2
 import numpy as np
 
-from settings import get_paths, get_preprocessing_params
+from main import get_paths, get_preprocessing_params
 
 PATHS = get_paths()
 RAW_DIR = PATHS["RAW_DIR"]

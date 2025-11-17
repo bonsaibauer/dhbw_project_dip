@@ -5,7 +5,7 @@ import os
 import cv2
 import numpy as np
 
-from settings import get_geometry_params, get_paths, get_spot_params
+from main import get_geometry_params, get_paths, get_spot_params
 from validation import normalize_path
 
 PATHS = get_paths()

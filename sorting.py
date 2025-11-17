@@ -4,7 +4,7 @@ import os
 import shutil
 import stat
 
-from settings import get_paths, get_sort_log
+from main import get_paths, get_sort_log
 from validation import render_table
 
 PATHS = get_paths()

@@ -2,7 +2,7 @@ import csv
 import os
 import shutil
 
-from settings import (
+from main import (
     get_label_class_map,
     get_label_priorities,
     get_paths,

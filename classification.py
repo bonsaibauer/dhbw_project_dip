@@ -5,7 +5,7 @@ import os
 
 import numpy as np
 
-from settings import (
+from main import (
     get_classifier_rules,
     get_label_class_map,
     get_label_priorities,

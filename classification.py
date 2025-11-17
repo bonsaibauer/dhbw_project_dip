@@ -1,3 +1,4 @@
+
 import csv
 import json
 import os
@@ -19,9 +20,43 @@ CLASSIFIER_RULES = get_classifier_rules()
 LABEL_CLASS_MAP = get_label_class_map()
 LABEL_PRIORITIES = get_label_priorities()
 SORT_LOG = get_sort_log()
-
-
 LABEL_RULES = get_label_rules()
+
+
+# ---------------------------------------------------------------------------
+# CSV Helpers
+# ---------------------------------------------------------------------------
+
+def load_feature_rows(csv_path):
+    if not os.path.exists(csv_path):
+        print(f"Fehler: CSV '{csv_path}' nicht gefunden.")
+        return [], []
+
+    with open(csv_path, encoding="utf-8", newline="") as csv_file:
+        reader = csv.DictReader(csv_file)
+        rows = [row for row in reader]
+        fieldnames = reader.fieldnames or []
+    return rows, fieldnames
+
+
+def ensure_columns(fieldnames, required):
+    updated = list(fieldnames)
+    for column in required:
+        if column not in updated:
+            updated.append(column)
+    return updated
+
+
+def store_rows(csv_path, fieldnames, rows):
+    with open(csv_path, "w", encoding="utf-8", newline="") as csv_file:
+        writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+# ---------------------------------------------------------------------------
+# Progress Feedback
+# ---------------------------------------------------------------------------
 
 def progress_bar(prefix, current, total, bar_len=30):
     if total <= 0:
@@ -30,8 +65,16 @@ def progress_bar(prefix, current, total, bar_len=30):
     filled = int(bar_len * ratio)
     bar = "#" * filled + "-" * (bar_len - filled)
     label = prefix.ljust(20)
-    print(f"\r{label}[{bar}] {ratio * 100:5.1f}% ({current}/{total})", end="", flush=True)
+    print(
+        f"\r{label}[{bar}] {ratio * 100:5.1f}% ({current}/{total})",
+        end="",
+        flush=True,
+    )
 
+
+# ---------------------------------------------------------------------------
+# Parsing & Feature Extraction
+# ---------------------------------------------------------------------------
 
 def parse_bool(value):
     if isinstance(value, bool):
@@ -55,7 +98,7 @@ def parse_int(value, default=0):
         return int(default)
 
 
-def compute_symmetry_score(areas, sensitivity):
+def calculate_symmetry(areas, sensitivity):
     if not areas:
         return 0.0
     mean_val = float(np.mean(areas))
@@ -67,19 +110,17 @@ def compute_symmetry_score(areas, sensitivity):
     return max(0.0, min(100.0, round(raw_score, 1)))
 
 
-def compute_features(row, sym_sen):
+def extract_features(row, sym_sen):
     areas = json.loads(row.get("window_areas") or "[]")
     num_windows = parse_int(row.get("num_windows"))
     has_center_hole = parse_bool(row.get("has_center_hole"))
     total_holes = num_windows + (1 if has_center_hole else 0)
+
     avg_window = float(np.mean(areas)) if areas else 0.0
     min_window = float(np.min(areas)) if areas else 0.0
     max_window = float(np.max(areas)) if areas else 0.0
-    if min_window > 0:
-        window_ratio = max_window / min_window
-    else:
-        window_ratio = 1.0
-    symmetry_score = compute_symmetry_score(areas, sym_sen)
+    window_ratio = (max_window / min_window) if min_window > 0 else 1.0
+    symmetry_score = calculate_symmetry(areas, sym_sen)
 
     geo_area = parse_float(row.get("area"))
     geo_convex = parse_float(row.get("convex_area"))
@@ -112,6 +153,7 @@ def compute_features(row, sym_sen):
         "dark_delta": dark_delta,
         "color_flag": color_flag,
     }
+
     color_threshold = 40
     features["has_color"] = (
         color_flag
@@ -123,7 +165,11 @@ def compute_features(row, sym_sen):
     return features
 
 
-def check_condition(value, condition):
+# ---------------------------------------------------------------------------
+# Rule Evaluation
+# ---------------------------------------------------------------------------
+
+def condition_matches(value, condition):
     op = condition.get("op", ">=")
     if op == "between":
         min_val = condition.get("min", float("-inf"))
@@ -147,12 +193,12 @@ def check_condition(value, condition):
     return False
 
 
-def evaluate_label_rule(rule, features):
+def score_label_rule(rule, features):
     score = rule.get("base_score", 0.0)
     matched_reasons = []
     for condition in rule.get("conditions", []):
         metric_value = features.get(condition.get("metric"), 0)
-        if check_condition(metric_value, condition):
+        if condition_matches(metric_value, condition):
             score += condition.get("weight", 1.0)
             template = condition.get("reason")
             if template:
@@ -162,27 +208,22 @@ def evaluate_label_rule(rule, features):
                     matched_reasons.append(template)
     if score >= rule.get("min_score", 1.0):
         reason = "; ".join(matched_reasons[:2]) or rule.get("fallback_reason", "")
-        return {
-            "label": rule["label"],
-            "score": round(score, 3),
-            "reason": reason,
-        }
+        return {"label": rule["label"], "score": round(score, 3), "reason": reason}
     return None
 
 
-def evaluate_label_ruleset(features):
+def evaluate_label_rules(features):
     decisions = []
     for rule in LABEL_RULES:
-        result = evaluate_label_rule(rule, features)
+        result = score_label_rule(rule, features)
         if not result:
             continue
-        target_class = LABEL_CLASS_MAP.get(rule["label"], rule["label"].title())
-        result["class"] = target_class
+        result["class"] = LABEL_CLASS_MAP.get(rule["label"], rule["label"].title())
         decisions.append(result)
     return decisions
 
 
-def select_decision(decisions):
+def select_best_decision(decisions):
     if not decisions:
         return None
     decisions.sort(
@@ -195,94 +236,83 @@ def select_decision(decisions):
     return decisions[0]
 
 
-def load_feature_rows(csv_path):
-    if not os.path.exists(csv_path):
-        print(f"Fehler: CSV '{csv_path}' nicht gefunden.")
-        return [], []
-
-    with open(csv_path, encoding="utf-8", newline="") as csv_file:
-        reader = csv.DictReader(csv_file)
-        rows = [row for row in reader]
-        fieldnames = reader.fieldnames or []
-    return rows, fieldnames
-
-
-def ensure_columns(fieldnames, required):
-    updated = list(fieldnames)
-    for column in required:
-        if column not in updated:
-            updated.append(column)
-    return updated
+def fallback_decision(features):
+    fallback_label = "rest" if features.get("is_anomaly") else "normal"
+    fallback_class = LABEL_CLASS_MAP.get(fallback_label, fallback_label.title())
+    return {
+        "label": fallback_label,
+        "class": fallback_class,
+        "score": 0.0,
+        "reason": "Fallback",
+    }
 
 
-def store_rows(csv_path, fieldnames, rows):
-    with open(csv_path, "w", encoding="utf-8", newline="") as csv_file:
-        writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
-        writer.writeheader()
-        writer.writerows(rows)
+def describe_decision(decision):
+    label_title = decision["label"].title()
+    detail = decision.get("reason") or "Regel erfüllt"
+    return f"{label_title}: {detail}"
 
+
+def build_destination_filename(filename, class_name, features):
+    if class_name == "Normal":
+        prefix = f"{features['symmetry']:06.2f}_"
+    else:
+        prefix = ""
+    return f"{prefix}{filename}"
+
+
+def classify_record(row, sym_sen):
+    features = extract_features(row, sym_sen)
+    decisions = evaluate_label_rules(features)
+    decision = select_best_decision(decisions) or fallback_decision(features)
+    return decision, features
+
+
+# ---------------------------------------------------------------------------
+# Classification Workflow
+# ---------------------------------------------------------------------------
 
 def classify_from_csv(csv_path, classifier_rules, sort_log):
     rows, fieldnames = load_feature_rows(csv_path)
     if not rows:
         return []
 
-    sym_sen = classifier_rules.get('SYM_SEN', 1.0)
-
+    sym_sen = classifier_rules.get("SYM_SEN", 1.0)
     predictions = []
     total_files = len(rows)
 
     for idx, row in enumerate(rows, 1):
-        rel_path = row.get('relative_path', '')
-        filename = row.get('filename') or os.path.basename(row.get('source_path', ''))
+        rel_path = row.get("relative_path", "")
+        filename = row.get("filename") or os.path.basename(row.get("source_path", ""))
 
-        features = compute_features(row, sym_sen)
-        decisions = evaluate_label_ruleset(features)
-        decision = select_decision(decisions)
-        if decision is None:
-            fallback_label = 'rest' if features.get('is_anomaly') else 'normal'
-            decision = {
-                'label': fallback_label,
-                'class': LABEL_CLASS_MAP.get(fallback_label, fallback_label.title()),
-                'score': 0.0,
-                'reason': 'Fallback',
-            }
+        decision, features = classify_record(row, sym_sen)
+        class_name = decision["class"]
+        reason = describe_decision(decision)
+        new_filename = build_destination_filename(filename, class_name, features)
 
-        label_title = decision['label'].title()
-        class_name = decision['class']
-        decision_reason = decision.get('reason') or 'Regel erfüllt'
-        reason = f"{label_title}: {decision_reason}"
-
-        if class_name == 'Normal':
-            file_prefix = f"{features['symmetry']:06.2f}_"
-        else:
-            file_prefix = ''
-
-        new_filename = f"{file_prefix}{filename}"
-
-        row['target_label'] = decision['label']
-        row['target_class'] = class_name
-        row['reason'] = reason
-        row['destination_filename'] = new_filename
+        row["target_label"] = decision["label"]
+        row["target_class"] = class_name
+        row["reason"] = reason
+        row["destination_filename"] = new_filename
 
         predictions.append(
             {
-                'relative_path': rel_path,
-                'predicted': class_name,
-                'label': decision['label'],
-                'source_path': row.get('source_path', ''),
-                'reason': reason,
-                'original_name': filename,
+                "relative_path": rel_path,
+                "predicted": class_name,
+                "label": decision["label"],
+                "source_path": row.get("source_path", ""),
+                "reason": reason,
+                "original_name": filename,
             }
         )
 
         if sort_log and total_files > 0:
-            progress_bar('  Klassifizierung', idx, total_files)
+            progress_bar("  Klassifizierung", idx, total_files)
 
     if sort_log and total_files > 0:
         print()
 
-    required_columns = ['target_label', 'target_class', 'reason', 'destination_filename']
+    required_columns = ["target_label", "target_class", "reason", "destination_filename"]
     final_fields = ensure_columns(fieldnames, required_columns)
     store_rows(csv_path, final_fields, rows)
 

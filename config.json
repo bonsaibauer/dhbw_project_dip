@@ -1,0 +1,85 @@
+{
+  "paths": {
+    "RAW_DIR": "data/Images",
+    "OUT_DIR": "output",
+    "PROC_DIR": "output/processed",
+    "SORT_DIR": "output/sorted",
+    "FAIL_DIR": "output/sorted/Falsch",
+    "ANNO_FILE": "data/image_anno.csv",
+    "PIPELINE_CSV": "output/image_data.csv"
+  },
+  "sort_log": true,
+  "preprocessing": {
+    "HSV_LO": [35, 40, 30],
+    "HSV_HI": [85, 255, 255],
+    "CNT_MINA": 30000,
+    "WARP_SZ": [600, 400],
+    "TGT_W": 400,
+    "TGT_H": 400
+  },
+  "geometry": {
+    "EPS_FACT": 0.04,
+    "HOLE_MIN": 100,
+    "WIND_MIN": 500,
+    "CTR_MAXA": 3000,
+    "FRAG_MIN": 6000
+  },
+  "spot": {
+    "ERO_KN": [5, 5],
+    "ERO_ITER": 4,
+    "BKH_KN": [15, 15],
+    "BKH_CON": 30,
+    "NOI_KN": [2, 2],
+    "SPT_MIN": 60,
+    "SPT_RAT": 0.0008,
+    "FERO_ITR": 1,
+    "INER_ITR": 1,
+    "INSP_RAT": 0.3,
+    "FSPT_RAT": 0.4,
+    "SPT_FIN": 40,
+    "DRK_PCT": 5
+  },
+  "classifier_rules": {
+    "RWA_BASE": 4000,
+    "RWA_STRG": 3500,
+    "RWA_CMP": 3400,
+    "RWA_LRG": 4300,
+    "RHL_BASE": 1.05,
+    "RHL_STRG": 1.08,
+    "RWR_BASE": 3.0,
+    "RWR_STRG": 4.5,
+    "RMULT_SP": 120,
+    "COL_STR": 1500,
+    "COL_SPT": 1000,
+    "TXT_STD": 60,
+    "COL_SYM": 85,
+    "COL_LAB": 2000,
+    "LAB_STD": 20,
+    "DRK_DLT": 15,
+    "SYM_SEN": 1.1,
+    "EDGE_DMG": 1.15,
+    "EDGE_SEG": 14,
+    "BRK_SYM": 80
+  },
+  "label_priorities": {
+    "bruch": 0,
+    "rest": 1,
+    "farbfehler": 2,
+    "normal": 3
+  },
+  "label_class_map": {
+    "normal": "Normal",
+    "different colour spot": "Farbfehler",
+    "similar colour spot": "Farbfehler",
+    "burnt": "Farbfehler",
+    "farbfehler": "Farbfehler",
+    "middle breakage": "Bruch",
+    "corner or edge breakage": "Bruch",
+    "bruch": "Bruch",
+    "fryum stuck together": "Rest",
+    "small scratches": "Rest",
+    "other": "Rest",
+    "fragment": "Rest",
+    "rest": "Rest"
+  }
+}

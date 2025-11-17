@@ -2,6 +2,20 @@ import csv
 import os
 import shutil
 
+from settings import (
+    get_label_class_map,
+    get_label_priorities,
+    get_paths,
+)
+
+PATHS = get_paths()
+PIPELINE_CSV = PATHS["PIPELINE_CSV"]
+ANNO_FILE = PATHS["ANNO_FILE"]
+FAIL_DIR = PATHS["FAIL_DIR"]
+LABEL_PRIORITIES = get_label_priorities()
+LABEL_CLASS_MAP = get_label_class_map()
+DEFAULT_CLASSES = ["Normal", "Bruch", "Farbfehler", "Rest"]
+
 
 def normalize_path(path):
     """Bringt Pfadangaben in das Format der Annotationen."""
@@ -128,40 +142,72 @@ def validate_predictions(predictions, annotations, falsch_dir, label_priorities,
     accuracy = (correct / total) * 100
     skipped = len(predictions) - total
     print("\nValidierung (image_anno.csv):")
-    print("- Gesamtstatistik:\n")
-    summary_headers = ["Statistik", "Wert"]
-    summary_rows = [
-        ["Bewertet", str(total)],
-        ["Treffer", str(correct)],
-        ["Genauigkeit %", f"{accuracy:.2f}"],
-        ["Falsch zugeordnet", str(len(mismatches))],
+    headers = ["Klasse", "Erwartet", "Treffer", "Genauigkeit %", "Falsch"]
+    rows = [
+        ["Gesamt", str(total), str(correct), f"{accuracy:.2f}", str(len(mismatches))]
     ]
     if skipped:
-        summary_rows.append(["Ohne passende Annotation", str(skipped)])
-    render_table(summary_headers, summary_rows)
+        rows.append(["Ohne passende Annotation", str(skipped), "-", "-", "-"])
+    class_order = DEFAULT_CLASSES[:]
+    class_order.extend(
+        name for name in sorted(per_class.keys()) if name not in DEFAULT_CLASSES
+    )
+    for cls_name in class_order:
+        stats = per_class.get(cls_name, {"total": 0, "correct": 0})
+        acc_cls = (
+            (stats["correct"] / stats["total"]) * 100 if stats["total"] else 0.0
+        )
+        rows.append(
+            [
+                cls_name,
+                str(stats["total"]),
+                str(stats["correct"]),
+                f"{acc_cls:.2f}",
+                "-",
+            ]
+        )
+    render_table(headers, rows)
     chain = priority_chain(label_priorities, label_class_map)
     if chain:
         print(f"Priorisierung (höchste Priorität links): {chain}\n")
-
-    if per_class:
-        print("- Klassenübersicht:")
-        headers = ["Klasse", "Erwartet", "Treffer", "Genauigkeit %"]
-        rows = []
-        for cls_name in sorted(per_class.keys()):
-            stats = per_class[cls_name]
-            acc_cls = (
-                (stats["correct"] / stats["total"]) * 100 if stats["total"] else 0.0
-            )
-            rows.append(
-                [
-                    cls_name,
-                    str(stats["total"]),
-                    str(stats["correct"]),
-                    f"{acc_cls:.2f}",
-                ]
-            )
-        render_table(headers, rows)
-
     if mismatches:
         for pred, expected in mismatches:
             copy_mismatch(pred, expected, falsch_dir)
+
+
+def load_predictions_from_csv(csv_path):
+    if not os.path.exists(csv_path):
+        print(f"Fehler: CSV '{csv_path}' nicht gefunden.")
+        return []
+
+    predictions = []
+    with open(csv_path, encoding="utf-8", newline="") as csv_file:
+        reader = csv.DictReader(csv_file)
+        for row in reader:
+            if not row.get("target_class"):
+                continue
+            predictions.append(
+                {
+                    "relative_path": row.get("relative_path", ""),
+                    "predicted": row.get("target_class", "Rest"),
+                    "source_path": row.get("source_path", ""),
+                    "reason": row.get("reason", ""),
+                }
+            )
+    return predictions
+
+
+def main():
+    predictions = load_predictions_from_csv(PIPELINE_CSV)
+    annotations = load_annotations(ANNO_FILE, LABEL_PRIORITIES, LABEL_CLASS_MAP)
+    validate_predictions(
+        predictions,
+        annotations,
+        FAIL_DIR,
+        LABEL_PRIORITIES,
+        LABEL_CLASS_MAP,
+    )
+
+
+if __name__ == "__main__":
+    main()

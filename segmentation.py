@@ -5,6 +5,13 @@ import stat
 import cv2
 import numpy as np
 
+from settings import get_paths, get_preprocessing_params
+
+PATHS = get_paths()
+RAW_DIR = PATHS["RAW_DIR"]
+PROC_DIR = PATHS["PROC_DIR"]
+PREPROCESSING_PARAMS = get_preprocessing_params()
+
 
 def progress_bar(prefix, current, total, bar_len=30):
     if total <= 0:
@@ -12,7 +19,8 @@ def progress_bar(prefix, current, total, bar_len=30):
     ratio = min(max(current / total, 0), 1)
     filled = int(bar_len * ratio)
     bar = "#" * filled + "-" * (bar_len - filled)
-    print(f"\r{prefix} [{bar}] {ratio * 100:5.1f}% ({current}/{total})", end="", flush=True)
+    label = prefix.ljust(20)
+    print(f"\r{label}[{bar}] {ratio * 100:5.1f}% ({current}/{total})", end="", flush=True)
 
 
 # --- Dateiverwaltung ---------------------------------------------------------
@@ -97,8 +105,6 @@ def process_directory(source_dir, target_dir, preprocess_settings):
         print(f"Keine Bilder in '{source_dir}' gefunden.")
         return
 
-    print(f"Segmentierung ({total_files} Bilder):")
-
     for idx, (root, name) in enumerate(image_files, 1):
         image = cv2.imread(os.path.join(root, name))
         if image is None:
@@ -113,4 +119,18 @@ def process_directory(source_dir, target_dir, preprocess_settings):
 
         progress_bar("  Segmentierung", idx, total_files)
 
-    print("\nSegmentierung abgeschlossen.")
+    if total_files > 0:
+        print()
+
+
+def main():
+    if not os.path.exists(RAW_DIR):
+        print(f"Fehler: Quellordner '{RAW_DIR}' nicht gefunden. Bitte Bilder bereitstellen.")
+        return
+
+    os.makedirs(os.path.dirname(PROC_DIR), exist_ok=True)
+    process_directory(RAW_DIR, PROC_DIR, PREPROCESSING_PARAMS)
+
+
+if __name__ == "__main__":
+    main()

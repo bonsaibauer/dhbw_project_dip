@@ -3,9 +3,11 @@ from functools import lru_cache
 
 import cv2, numpy as np
 
-base_dir = os.path.dirname(__file__)
-path_path = os.path.join(base_dir, "path.json")
-seg_path = os.path.join(base_dir, "segmentation.json")
+script_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(script_dir)
+config_dir = os.path.join(project_root, "config")
+path_path = os.path.join(config_dir, "path.json")
+seg_path = os.path.join(config_dir, "segmentation.json")
 
 
 @lru_cache(maxsize=1)

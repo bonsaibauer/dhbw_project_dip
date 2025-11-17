@@ -5,8 +5,10 @@ import shutil
 import stat
 from functools import lru_cache
 
-base_dir = os.path.dirname(__file__)
-path_path = os.path.join(base_dir, "path.json")
+script_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(script_dir)
+config_dir = os.path.join(project_root, "config")
+path_path = os.path.join(config_dir, "path.json")
 
 
 def load_json(path, error_msg):

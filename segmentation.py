@@ -5,15 +5,15 @@ import stat
 import cv2
 import numpy as np
 
-from main import get_paths, get_preprocessing_params
+from main import fetch_pipeline_paths, fetch_preprocessing_settings
 
-PATHS = get_paths()
-RAW_DIR = PATHS["RAW_DIR"]
-PROC_DIR = PATHS["PROC_DIR"]
-PREPROCESSING_PARAMS = get_preprocessing_params()
+PIPELINE_PATHS = fetch_pipeline_paths()
+RAW_IMAGE_DIR = PIPELINE_PATHS["raw_image_directory"]
+PROCESSED_IMAGE_DIR = PIPELINE_PATHS["processed_image_directory"]
+PREPROCESSING_SETTINGS = fetch_preprocessing_settings()
 
 
-def progress_bar(prefix, current, total, bar_len=30):
+def display_progress_bar(prefix, current, total, bar_len=30):
     if total <= 0:
         return
     ratio = min(max(current / total, 0), 1)
@@ -25,7 +25,7 @@ def progress_bar(prefix, current, total, bar_len=30):
 
 # --- Dateiverwaltung ---------------------------------------------------------
 
-def clean_directory(folder):
+def remove_directory_tree(folder):
     if not os.path.exists(folder):
         return
 
@@ -39,7 +39,7 @@ def clean_directory(folder):
     shutil.rmtree(folder, onerror=_on_rm_error)
 
 
-def image_paths(source_dir):
+def iterate_image_files(source_dir):
     valid_suffixes = (".jpg", ".jpeg", ".png")
     for root, _, files in os.walk(source_dir):
         for name in files:
@@ -49,13 +49,13 @@ def image_paths(source_dir):
 
 # --- Bildsegmentierung -------------------------------------------------------
 
-def warp_segments(image, settings):
+def warp_image_segments(image, settings):
     """Gibt alle normalisierten Snacks eines Fotos zurück."""
     mask = cv2.bitwise_not(
         cv2.inRange(
             cv2.cvtColor(image, cv2.COLOR_BGR2HSV),
-            settings["HSV_LO"],
-            settings["HSV_HI"],
+            settings["preprocess_hsv_lower"],
+            settings["preprocess_hsv_upper"],
         )
     )
     masked = cv2.bitwise_and(image, image, mask=mask)
@@ -66,12 +66,13 @@ def warp_segments(image, settings):
         cv2.CHAIN_APPROX_NONE,
     )
 
-    warp_w, warp_h = settings["WARP_SZ"]
-    target_size = (settings["TGT_W"], settings["TGT_H"])
+    warp_w, warp_h = settings["warp_frame_size"]
+    target_size = (settings["target_width"], settings["target_height"])
     dst_pts = np.float32([[0, warp_h - 1], [0, 0], [warp_w - 1, 0], [warp_w - 1, warp_h - 1]])
 
     outputs = []
-    for contour in (cnt for cnt in contours if cv2.contourArea(cnt) > settings["CNT_MINA"]):
+    min_area = settings["minimum_contour_area"]
+    for contour in (cnt for cnt in contours if cv2.contourArea(cnt) > min_area):
         rect = cv2.minAreaRect(contour)
         if rect[1][1] > rect[1][0]:
             rect = (rect[0], (rect[1][1], rect[1][0]), rect[2] - 90)
@@ -94,12 +95,12 @@ def warp_segments(image, settings):
 
 # --- Datensatzsteuerung ------------------------------------------------------
 
-def process_directory(source_dir, target_dir, preprocess_settings):
+def segment_directory_images(source_dir, target_dir, preprocess_settings):
     """Segmentiert alle Rohbilder und speichert die Ergebnisse im Zielordner."""
-    clean_directory(target_dir)
+    remove_directory_tree(target_dir)
     os.makedirs(target_dir, exist_ok=True)
 
-    image_files = list(image_paths(source_dir))
+    image_files = list(iterate_image_files(source_dir))
     total_files = len(image_files)
     if total_files == 0:
         print(f"Keine Bilder in '{source_dir}' gefunden.")
@@ -110,27 +111,27 @@ def process_directory(source_dir, target_dir, preprocess_settings):
         if image is None:
             continue
 
-        warped_snacks = warp_segments(image, preprocess_settings)
+        warped_snacks = warp_image_segments(image, preprocess_settings)
         if warped_snacks:
             class_dir = os.path.join(target_dir, os.path.basename(root))
             os.makedirs(class_dir, exist_ok=True)
             for snack in warped_snacks:
                 cv2.imwrite(os.path.join(class_dir, name), snack)
 
-        progress_bar("  Segmentierung", idx, total_files)
+        display_progress_bar("  Segmentierung", idx, total_files)
 
     if total_files > 0:
         print()
 
 
-def main():
-    if not os.path.exists(RAW_DIR):
-        print(f"Fehler: Quellordner '{RAW_DIR}' nicht gefunden. Bitte Bilder bereitstellen.")
+def run_segmentation_cli():
+    if not os.path.exists(RAW_IMAGE_DIR):
+        print(f"Fehler: Quellordner '{RAW_IMAGE_DIR}' nicht gefunden. Bitte Bilder bereitstellen.")
         return
 
-    os.makedirs(os.path.dirname(PROC_DIR), exist_ok=True)
-    process_directory(RAW_DIR, PROC_DIR, PREPROCESSING_PARAMS)
+    os.makedirs(os.path.dirname(PROCESSED_IMAGE_DIR), exist_ok=True)
+    segment_directory_images(RAW_IMAGE_DIR, PROCESSED_IMAGE_DIR, PREPROCESSING_SETTINGS)
 
 
 if __name__ == "__main__":
-    main()
+    run_segmentation_cli()

@@ -6,28 +6,28 @@ import os
 import numpy as np
 
 from main import (
-    get_classifier_rules,
-    get_label_class_map,
-    get_label_priorities,
-    get_label_rules,
-    get_paths,
-    get_sort_log,
+    fetch_classifier_rules,
+    fetch_label_class_mapping,
+    fetch_label_priorities,
+    fetch_label_rules,
+    fetch_pipeline_paths,
+    is_sort_logging_enabled,
 )
 
-PATHS = get_paths()
-PIPELINE_CSV = PATHS["PIPELINE_CSV"]
-CLASSIFIER_RULES = get_classifier_rules()
-LABEL_CLASS_MAP = get_label_class_map()
-LABEL_PRIORITIES = get_label_priorities()
-SORT_LOG = get_sort_log()
-LABEL_RULES = get_label_rules()
+PATHS = fetch_pipeline_paths()
+PIPELINE_CSV_PATH = PATHS["pipeline_csv_path"]
+CLASSIFIER_RULES = fetch_classifier_rules()
+LABEL_CLASS_MAP = fetch_label_class_mapping()
+LABEL_PRIORITIES = fetch_label_priorities()
+SORT_LOG_ENABLED = is_sort_logging_enabled()
+LABEL_RULES = fetch_label_rules()
 
 
 # ---------------------------------------------------------------------------
 # CSV Helpers
 # ---------------------------------------------------------------------------
 
-def load_feature_rows(csv_path):
+def read_feature_rows(csv_path):
     if not os.path.exists(csv_path):
         print(f"Fehler: CSV '{csv_path}' nicht gefunden.")
         return [], []
@@ -39,7 +39,7 @@ def load_feature_rows(csv_path):
     return rows, fieldnames
 
 
-def ensure_columns(fieldnames, required):
+def ensure_required_columns(fieldnames, required):
     updated = list(fieldnames)
     for column in required:
         if column not in updated:
@@ -47,7 +47,7 @@ def ensure_columns(fieldnames, required):
     return updated
 
 
-def store_rows(csv_path, fieldnames, rows):
+def write_feature_rows(csv_path, fieldnames, rows):
     with open(csv_path, "w", encoding="utf-8", newline="") as csv_file:
         writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
         writer.writeheader()
@@ -58,7 +58,7 @@ def store_rows(csv_path, fieldnames, rows):
 # Progress Feedback
 # ---------------------------------------------------------------------------
 
-def progress_bar(prefix, current, total, bar_len=30):
+def display_progress_bar(prefix, current, total, bar_len=30):
     if total <= 0:
         return
     ratio = min(max(current / total, 0), 1)
@@ -76,7 +76,7 @@ def progress_bar(prefix, current, total, bar_len=30):
 # Parsing & Feature Extraction
 # ---------------------------------------------------------------------------
 
-def parse_bool(value):
+def parse_boolean_flag(value):
     if isinstance(value, bool):
         return value
     if value is None:
@@ -84,21 +84,21 @@ def parse_bool(value):
     return str(value).strip().lower() in {"1", "true", "yes"}
 
 
-def parse_float(value, default=0.0):
+def parse_float_value(value, default=0.0):
     try:
         return float(value)
     except (TypeError, ValueError):
         return float(default)
 
 
-def parse_int(value, default=0):
+def parse_integer_value(value, default=0):
     try:
         return int(float(value))
     except (TypeError, ValueError):
         return int(default)
 
 
-def calculate_symmetry(areas, sensitivity):
+def calculate_window_symmetry_score(areas, sensitivity):
     if not areas:
         return 0.0
     mean_val = float(np.mean(areas))
@@ -110,52 +110,64 @@ def calculate_symmetry(areas, sensitivity):
     return max(0.0, min(100.0, round(raw_score, 1)))
 
 
-def extract_features(row, sym_sen):
-    areas = json.loads(row.get("window_areas") or "[]")
-    num_windows = parse_int(row.get("num_windows"))
-    has_center_hole = parse_bool(row.get("has_center_hole"))
-    total_holes = num_windows + (1 if has_center_hole else 0)
+def extract_feature_metrics(row, sym_sen):
+    window_areas = json.loads(row.get("geometry_window_area_list") or "[]")
+    window_count = parse_integer_value(row.get("geometry_window_count"))
+    has_center_hole = parse_boolean_flag(row.get("geometry_has_center_hole"))
+    total_holes = window_count + (1 if has_center_hole else 0)
 
-    avg_window = float(np.mean(areas)) if areas else 0.0
-    min_window = float(np.min(areas)) if areas else 0.0
-    max_window = float(np.max(areas)) if areas else 0.0
+    avg_window = float(np.mean(window_areas)) if window_areas else 0.0
+    min_window = float(np.min(window_areas)) if window_areas else 0.0
+    max_window = float(np.max(window_areas)) if window_areas else 0.0
     window_ratio = (max_window / min_window) if min_window > 0 else 1.0
-    symmetry_score = calculate_symmetry(areas, sym_sen)
+    symmetry_score = calculate_window_symmetry_score(window_areas, sym_sen)
 
-    geo_area = parse_float(row.get("area"))
-    geo_convex = parse_float(row.get("convex_area"))
+    geo_area = parse_float_value(row.get("geometry_area"))
+    geo_convex = parse_float_value(row.get("geometry_convex_area"))
     hull_ratio = (geo_convex / geo_area) if geo_area else 0.0
 
-    spot_area = parse_int(row.get("spot_area"))
-    texture_std = parse_float(row.get("texture_std"))
-    lab_std = parse_float(row.get("lab_std"))
-    dark_delta = parse_float(row.get("dark_delta"))
-    color_flag = parse_bool(row.get("spot_is_defective"))
+    spot_area = parse_integer_value(row.get("color_spot_area"))
+    texture_std = parse_float_value(row.get("color_texture_stddev"))
+    lab_std = parse_float_value(row.get("color_lab_stddev"))
+    dark_delta = parse_float_value(row.get("color_dark_delta"))
+    color_flag = parse_boolean_flag(row.get("color_detection_flag"))
 
     features = {
-        "areas": areas,
-        "num_windows": num_windows,
-        "has_center_hole": has_center_hole,
-        "total_holes": total_holes,
-        "avg_window": avg_window,
-        "window_ratio": window_ratio,
-        "symmetry": symmetry_score,
-        "hull_ratio": hull_ratio,
-        "edge_damage": parse_float(row.get("edge_damage")),
-        "edge_segments": parse_int(row.get("edge_segments")),
-        "fragment_count": parse_int(row.get("fragment_count")),
-        "outer_count": parse_int(row.get("outer_count")),
-        "is_anomaly": parse_bool(row.get("is_anomaly")),
-        "has_object": parse_bool(row.get("has_object")),
-        "spot_area": spot_area,
-        "texture_std": texture_std,
-        "lab_std": lab_std,
-        "dark_delta": dark_delta,
-        "color_flag": color_flag,
+        "geometry_window_area_list": window_areas,
+        "geometry_window_count": window_count,
+        "geometry_has_center_hole": has_center_hole,
+        "geometry_total_hole_count": total_holes,
+        "geometry_window_area_avg": avg_window,
+        "geometry_window_area_ratio": window_ratio,
+        "geometry_window_symmetry_score": symmetry_score,
+        "geometry_hull_ratio": hull_ratio,
+        "geometry_edge_damage_ratio": parse_float_value(
+            row.get("geometry_edge_damage_ratio")
+        ),
+        "geometry_edge_segment_count": parse_integer_value(
+            row.get("geometry_edge_segment_count")
+        ),
+        "geometry_fragment_count": parse_integer_value(
+            row.get("geometry_fragment_count")
+        ),
+        "geometry_outer_contour_count": parse_integer_value(
+            row.get("geometry_outer_contour_count")
+        ),
+        "pipeline_has_anomaly_flag": parse_boolean_flag(
+            row.get("pipeline_has_anomaly_flag")
+        ),
+        "geometry_has_primary_object": parse_boolean_flag(
+            row.get("geometry_has_primary_object")
+        ),
+        "color_spot_area": spot_area,
+        "color_texture_stddev": texture_std,
+        "color_lab_stddev": lab_std,
+        "color_dark_delta": dark_delta,
+        "color_detection_flag": color_flag,
     }
 
     color_threshold = 40
-    features["has_color"] = (
+    features["color_issue_detected"] = (
         color_flag
         or spot_area >= color_threshold
         or texture_std >= 12
@@ -169,7 +181,7 @@ def extract_features(row, sym_sen):
 # Rule Evaluation
 # ---------------------------------------------------------------------------
 
-def condition_matches(value, condition):
+def does_condition_match_metric(value, condition):
     op = condition.get("op", ">=")
     if op == "between":
         min_val = condition.get("min", float("-inf"))
@@ -193,12 +205,12 @@ def condition_matches(value, condition):
     return False
 
 
-def score_label_rule(rule, features):
+def score_label_rule_match(rule, features):
     score = rule.get("base_score", 0.0)
     matched_reasons = []
     for condition in rule.get("conditions", []):
         metric_value = features.get(condition.get("metric"), 0)
-        if condition_matches(metric_value, condition):
+        if does_condition_match_metric(metric_value, condition):
             score += condition.get("weight", 1.0)
             template = condition.get("reason")
             if template:
@@ -212,10 +224,10 @@ def score_label_rule(rule, features):
     return None
 
 
-def evaluate_label_rules(features):
+def evaluate_label_rule_set(features):
     decisions = []
     for rule in LABEL_RULES:
-        result = score_label_rule(rule, features)
+        result = score_label_rule_match(rule, features)
         if not result:
             continue
         result["class"] = LABEL_CLASS_MAP.get(rule["label"], rule["label"].title())
@@ -223,7 +235,7 @@ def evaluate_label_rules(features):
     return decisions
 
 
-def select_best_decision(decisions):
+def select_highest_priority_decision(decisions):
     if not decisions:
         return None
     decisions.sort(
@@ -236,8 +248,10 @@ def select_best_decision(decisions):
     return decisions[0]
 
 
-def fallback_decision(features):
-    fallback_label = "rest" if features.get("is_anomaly") else "normal"
+def build_fallback_classification(features):
+    fallback_label = (
+        "rest" if features.get("pipeline_has_anomaly_flag") else "normal"
+    )
     fallback_class = LABEL_CLASS_MAP.get(fallback_label, fallback_label.title())
     return {
         "label": fallback_label,
@@ -247,24 +261,24 @@ def fallback_decision(features):
     }
 
 
-def describe_decision(decision):
+def format_decision_reason(decision):
     label_title = decision["label"].title()
     detail = decision.get("reason") or "Regel erfüllt"
     return f"{label_title}: {detail}"
 
 
-def build_destination_filename(filename, class_name, features):
+def compose_destination_filename(filename, class_name, features):
     if class_name == "Normal":
-        prefix = f"{features['symmetry']:06.2f}_"
+        prefix = f"{features['geometry_window_symmetry_score']:06.2f}_"
     else:
         prefix = ""
     return f"{prefix}{filename}"
 
 
-def classify_record(row, sym_sen):
-    features = extract_features(row, sym_sen)
-    decisions = evaluate_label_rules(features)
-    decision = select_best_decision(decisions) or fallback_decision(features)
+def classify_feature_row(row, sym_sen):
+    features = extract_feature_metrics(row, sym_sen)
+    decisions = evaluate_label_rule_set(features)
+    decision = select_highest_priority_decision(decisions) or build_fallback_classification(features)
     return decision, features
 
 
@@ -272,12 +286,12 @@ def classify_record(row, sym_sen):
 # Classification Workflow
 # ---------------------------------------------------------------------------
 
-def classify_from_csv(csv_path, classifier_rules, sort_log):
-    rows, fieldnames = load_feature_rows(csv_path)
+def classify_pipeline_from_csv(csv_path, classifier_rules, sort_log):
+    rows, fieldnames = read_feature_rows(csv_path)
     if not rows:
         return []
 
-    sym_sen = classifier_rules.get("SYM_SEN", 1.0)
+    sym_sen = classifier_rules.get("symmetry_sensitivity", 1.0)
     predictions = []
     total_files = len(rows)
 
@@ -285,10 +299,10 @@ def classify_from_csv(csv_path, classifier_rules, sort_log):
         rel_path = row.get("relative_path", "")
         filename = row.get("filename") or os.path.basename(row.get("source_path", ""))
 
-        decision, features = classify_record(row, sym_sen)
+        decision, features = classify_feature_row(row, sym_sen)
         class_name = decision["class"]
-        reason = describe_decision(decision)
-        new_filename = build_destination_filename(filename, class_name, features)
+        reason = format_decision_reason(decision)
+        new_filename = compose_destination_filename(filename, class_name, features)
 
         row["target_label"] = decision["label"]
         row["target_class"] = class_name
@@ -307,21 +321,25 @@ def classify_from_csv(csv_path, classifier_rules, sort_log):
         )
 
         if sort_log and total_files > 0:
-            progress_bar("  Klassifizierung", idx, total_files)
+            display_progress_bar("  Klassifizierung", idx, total_files)
 
     if sort_log and total_files > 0:
         print()
 
     required_columns = ["target_label", "target_class", "reason", "destination_filename"]
-    final_fields = ensure_columns(fieldnames, required_columns)
-    store_rows(csv_path, final_fields, rows)
+    final_fields = ensure_required_columns(fieldnames, required_columns)
+    write_feature_rows(csv_path, final_fields, rows)
 
     return predictions
 
 
-def main():
-    classify_from_csv(PIPELINE_CSV, CLASSIFIER_RULES, SORT_LOG)
+def run_classification_cli():
+    classify_pipeline_from_csv(
+        PIPELINE_CSV_PATH,
+        CLASSIFIER_RULES,
+        SORT_LOG_ENABLED,
+    )
 
 
 if __name__ == "__main__":
-    main()
+    run_classification_cli()

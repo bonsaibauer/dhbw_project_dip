@@ -1,84 +1,84 @@
 {
   "paths": {
-    "RAW_DIR": "data/Images",
-    "OUT_DIR": "output",
-    "PROC_DIR": "output/processed",
-    "SORT_DIR": "output/sorted",
-    "FAIL_DIR": "output/sorted/Falsch",
-    "ANNO_FILE": "data/image_anno.csv",
-    "PIPELINE_CSV": "output/image_data.csv"
+    "raw_image_directory": "data/Images",
+    "pipeline_output_directory": "output",
+    "processed_image_directory": "output/processed",
+    "sorted_output_directory": "output/sorted",
+    "failed_validation_directory": "output/sorted/Falsch",
+    "annotation_file_path": "data/image_anno.csv",
+    "pipeline_csv_path": "output/image_data.csv"
   },
   "sort_log": true,
   "preprocessing": {
-    "HSV_LO": [
+    "preprocess_hsv_lower": [
       35,
       40,
       30
     ],
-    "HSV_HI": [
+    "preprocess_hsv_upper": [
       85,
       255,
       255
     ],
-    "CNT_MINA": 30000,
-    "WARP_SZ": [
+    "minimum_contour_area": 30000,
+    "warp_frame_size": [
       600,
       400
     ],
-    "TGT_W": 400,
-    "TGT_H": 400
+    "target_width": 400,
+    "target_height": 400
   },
   "geometry": {
-    "EPS_FACT": 0.04,
-    "HOLE_MIN": 100,
-    "WIND_MIN": 500,
-    "CTR_MAXA": 3000,
-    "FRAG_MIN": 6000
+    "polygon_epsilon_factor": 0.04,
+    "minimum_hole_area": 100,
+    "minimum_window_area": 500,
+    "maximum_center_area": 3000,
+    "minimum_fragment_area": 6000
   },
   "spot": {
-    "ERO_KN": [
+    "erosion_kernel_size": [
       5,
       5
     ],
-    "ERO_ITER": 4,
-    "BKH_KN": [
+    "erosion_iterations": 4,
+    "blackhat_kernel_size": [
       15,
       15
     ],
-    "BKH_CON": 30,
-    "NOI_KN": [
+    "blackhat_contrast_threshold": 30,
+    "noise_kernel_size": [
       2,
       2
     ],
-    "SPT_MIN": 60,
-    "SPT_RAT": 0.0008,
-    "FERO_ITR": 1,
-    "INER_ITR": 1,
-    "INSP_RAT": 0.3,
-    "FSPT_RAT": 0.4,
-    "SPT_FIN": 40,
-    "DRK_PCT": 5
+    "minimum_spot_area": 60,
+    "spot_area_ratio": 0.0008,
+    "fine_erosion_iterations": 1,
+    "inner_erosion_iterations": 1,
+    "inner_spot_ratio": 0.3,
+    "fine_spot_ratio": 0.4,
+    "fine_spot_area": 40,
+    "dark_percentile": 5
   },
   "classifier_rules": {
-    "RWA_BASE": 4000,
-    "RWA_STRG": 3500,
-    "RWA_CMP": 3400,
-    "RWA_LRG": 4300,
-    "RHL_BASE": 1.05,
-    "RHL_STRG": 1.08,
-    "RWR_BASE": 3.0,
-    "RWR_STRG": 4.5,
-    "RMULT_SP": 120,
-    "COL_STR": 1500,
-    "COL_SPT": 1000,
-    "TXT_STD": 60,
-    "COL_SYM": 85,
-    "COL_LAB": 2000,
-    "LAB_STD": 20,
-    "DRK_DLT": 15,
-    "SYM_SEN": 1.1,
-    "EDGE_DMG": 1.15,
-    "EDGE_SEG": 14,
-    "BRK_SYM": 80
+    "raw_area_minimum": 4000,
+    "raw_area_strict_minimum": 3500,
+    "raw_area_compact_minimum": 3400,
+    "raw_area_large_threshold": 4300,
+    "hull_ratio_minimum": 1.05,
+    "hull_ratio_strict_minimum": 1.08,
+    "window_ratio_minimum": 3.0,
+    "window_ratio_strict_minimum": 4.5,
+    "spot_multiplier_threshold": 120,
+    "color_strength_threshold": 1500,
+    "color_spot_threshold": 1000,
+    "texture_std_threshold": 60,
+    "color_symmetry_threshold": 85,
+    "color_lab_threshold": 2000,
+    "lab_std_threshold": 20,
+    "dark_delta_threshold": 15,
+    "symmetry_sensitivity": 1.1,
+    "edge_damage_threshold": 1.15,
+    "edge_segment_threshold": 14,
+    "breakage_symmetry_threshold": 80
   }
 }

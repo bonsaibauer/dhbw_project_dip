@@ -3,21 +3,21 @@ import os
 import shutil
 
 from main import (
-    get_label_class_map,
-    get_label_priorities,
-    get_paths,
+    fetch_label_class_mapping,
+    fetch_label_priorities,
+    fetch_pipeline_paths,
 )
 
-PATHS = get_paths()
-PIPELINE_CSV = PATHS["PIPELINE_CSV"]
-ANNO_FILE = PATHS["ANNO_FILE"]
-FAIL_DIR = PATHS["FAIL_DIR"]
-LABEL_PRIORITIES = get_label_priorities()
-LABEL_CLASS_MAP = get_label_class_map()
+PIPELINE_PATHS = fetch_pipeline_paths()
+PIPELINE_CSV_PATH = PIPELINE_PATHS["pipeline_csv_path"]
+ANNOTATION_FILE_PATH = PIPELINE_PATHS["annotation_file_path"]
+FAILED_VALIDATION_DIR = PIPELINE_PATHS["failed_validation_directory"]
+LABEL_PRIORITIES = fetch_label_priorities()
+LABEL_CLASS_MAP = fetch_label_class_mapping()
 DEFAULT_CLASSES = ["Normal", "Bruch", "Farbfehler", "Rest"]
 
 
-def normalize_path(path):
+def normalize_annotation_path(path):
     """Bringt Pfadangaben in das Format der Annotationen."""
     if not path:
         return ""
@@ -28,7 +28,7 @@ def normalize_path(path):
     return normalized.lstrip("/")
 
 
-def select_label(raw_label, label_priorities):
+def select_priority_label(raw_label, label_priorities):
     """Wählt das Label mit der höchsten Priorität aus."""
     if not raw_label:
         return None
@@ -39,7 +39,7 @@ def select_label(raw_label, label_priorities):
     return candidates[0]
 
 
-def load_annotations(annotation_file, label_priorities, label_class_map):
+def load_annotation_classes(annotation_file, label_priorities, label_class_map):
     """Lädt CSV-Annotationen und mapped sie auf die Zielklassen."""
     annotations = {}
     if not os.path.exists(annotation_file):
@@ -49,10 +49,10 @@ def load_annotations(annotation_file, label_priorities, label_class_map):
     with open(annotation_file, newline="", encoding="utf-8") as csv_file:
         reader = csv.DictReader(csv_file)
         for row in reader:
-            rel_path = normalize_path(row.get("image", ""))
+            rel_path = normalize_annotation_path(row.get("image", ""))
             if not rel_path:
                 continue
-            base_label = select_label(row.get("label", ""), label_priorities)
+            base_label = select_priority_label(row.get("label", ""), label_priorities)
             if not base_label:
                 continue
             annotations[rel_path] = label_class_map.get(base_label, "Rest")
@@ -60,7 +60,7 @@ def load_annotations(annotation_file, label_priorities, label_class_map):
     return annotations
 
 
-def render_table(headers, rows, indent="  "):
+def render_text_table(headers, rows, indent="  "):
     """Gibt eine Tabelle mit fester Spaltenbreite aus."""
     widths = [len(header) for header in headers]
     for row in rows:
@@ -77,7 +77,7 @@ def render_table(headers, rows, indent="  "):
     print()
 
 
-def priority_chain(label_priorities, label_class_map):
+def build_priority_chain(label_priorities, label_class_map):
     """Erstellt einen String mit der Priorisierungskette."""
     class_priority = {}
     for label, prio in label_priorities.items():
@@ -92,10 +92,10 @@ def priority_chain(label_priorities, label_class_map):
     return " > ".join(ordered)
 
 
-def copy_mismatch(pred_entry, expected_label, falsch_dir):
+def copy_mismatch_example(pred_entry, expected_label, falsch_dir):
     """Kopiert ein fehlklassifiziertes Bild in den Kontrollordner."""
     os.makedirs(falsch_dir, exist_ok=True)
-    rel_name = normalize_path(pred_entry.get("relative_path", ""))
+    rel_name = normalize_annotation_path(pred_entry.get("relative_path", ""))
     if not rel_name:
         rel_name = os.path.basename(pred_entry["source_path"])
     rel_name = rel_name.replace("/", "_")
@@ -107,7 +107,13 @@ def copy_mismatch(pred_entry, expected_label, falsch_dir):
     shutil.copy(pred_entry["source_path"], dest_path)
 
 
-def validate_predictions(predictions, annotations, falsch_dir, label_priorities, label_class_map):
+def validate_predictions_against_annotations(
+    predictions,
+    annotations,
+    falsch_dir,
+    label_priorities,
+    label_class_map,
+):
     """Vergleicht Vorhersagen mit Annotationen und erstellt eine Auswertung."""
     if not annotations:
         print("\nKeine Annotationen geladen -> Validierung übersprungen.")
@@ -122,7 +128,7 @@ def validate_predictions(predictions, annotations, falsch_dir, label_priorities,
     per_class = {}
 
     for pred in predictions:
-        rel_path = normalize_path(pred.get("relative_path", ""))
+        rel_path = normalize_annotation_path(pred.get("relative_path", ""))
         expected = annotations.get(rel_path)
         if expected is None:
             continue
@@ -166,16 +172,16 @@ def validate_predictions(predictions, annotations, falsch_dir, label_priorities,
                 "-",
             ]
         )
-    render_table(headers, rows)
-    chain = priority_chain(label_priorities, label_class_map)
+    render_text_table(headers, rows)
+    chain = build_priority_chain(label_priorities, label_class_map)
     if chain:
         print(f"Priorisierung (höchste Priorität links): {chain}\n")
     if mismatches:
         for pred, expected in mismatches:
-            copy_mismatch(pred, expected, falsch_dir)
+            copy_mismatch_example(pred, expected, falsch_dir)
 
 
-def load_predictions_from_csv(csv_path):
+def load_predictions_from_pipeline_csv(csv_path):
     if not os.path.exists(csv_path):
         print(f"Fehler: CSV '{csv_path}' nicht gefunden.")
         return []
@@ -197,17 +203,21 @@ def load_predictions_from_csv(csv_path):
     return predictions
 
 
-def main():
-    predictions = load_predictions_from_csv(PIPELINE_CSV)
-    annotations = load_annotations(ANNO_FILE, LABEL_PRIORITIES, LABEL_CLASS_MAP)
-    validate_predictions(
+def run_validation_cli():
+    predictions = load_predictions_from_pipeline_csv(PIPELINE_CSV_PATH)
+    annotations = load_annotation_classes(
+        ANNOTATION_FILE_PATH,
+        LABEL_PRIORITIES,
+        LABEL_CLASS_MAP,
+    )
+    validate_predictions_against_annotations(
         predictions,
         annotations,
-        FAIL_DIR,
+        FAILED_VALIDATION_DIR,
         LABEL_PRIORITIES,
         LABEL_CLASS_MAP,
     )
 
 
 if __name__ == "__main__":
-    main()
+    run_validation_cli()

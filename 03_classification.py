@@ -2,17 +2,71 @@
 import csv
 import json
 import os
+from functools import lru_cache
 
 import numpy as np
 
-from main import (
-    fetch_classifier_rules,
-    fetch_label_class_mapping,
-    fetch_label_priorities,
-    fetch_label_rules,
-    fetch_pipeline_paths,
-    is_sort_logging_enabled,
-)
+BASE_DIR = os.path.dirname(__file__)
+PARAMETER_FILE = os.path.join(BASE_DIR, "parameter.json")
+CLASSIFICATION_FILE = os.path.join(BASE_DIR, "classification.json")
+
+
+def _load_json_file(path, error_msg):
+    if not os.path.exists(path):
+        raise FileNotFoundError(error_msg)
+    with open(path, encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+@lru_cache(maxsize=1)
+def load_parameter_config():
+    return _load_json_file(
+        PARAMETER_FILE,
+        f"Parameterdatei '{PARAMETER_FILE}' nicht gefunden.",
+    )
+
+
+@lru_cache(maxsize=1)
+def load_classification_config():
+    return _load_json_file(
+        CLASSIFICATION_FILE,
+        f"Klassifikationsdatei '{CLASSIFICATION_FILE}' nicht gefunden.",
+    )
+
+
+def _normalize_path_value(path_value):
+    return os.path.normpath(path_value) if path_value else ""
+
+
+def _get_parameter_section(cfg_name):
+    return load_parameter_config().get(cfg_name, {})
+
+
+def fetch_pipeline_paths():
+    return {
+        key: _normalize_path_value(value)
+        for key, value in _get_parameter_section("paths").items()
+    }
+
+
+def fetch_classifier_rules():
+    return dict(load_parameter_config().get("classifier_rules", {}))
+
+
+def fetch_label_class_mapping():
+    return dict(load_classification_config().get("label_class_map", {}))
+
+
+def fetch_label_priorities():
+    return dict(load_classification_config().get("label_priorities", {}))
+
+
+def fetch_label_rules():
+    return list(load_classification_config().get("label_rules", []))
+
+
+def is_sort_logging_enabled():
+    return bool(load_parameter_config().get("sort_log", True))
 
 PATHS = fetch_pipeline_paths()
 PIPELINE_CSV_PATH = PATHS["pipeline_csv_path"]

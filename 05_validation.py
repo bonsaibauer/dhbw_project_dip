@@ -1,20 +1,52 @@
 import csv
+import json
 import os
 import shutil
+from functools import lru_cache
 
-from main import (
-    fetch_label_class_mapping,
-    fetch_label_priorities,
-    fetch_pipeline_paths,
-)
+BASE_DIR = os.path.dirname(__file__)
+PARAMETER_FILE = os.path.join(BASE_DIR, "parameter.json")
+CLASSIFICATION_FILE = os.path.join(BASE_DIR, "classification.json")
 
-PIPELINE_PATHS = fetch_pipeline_paths()
-PIPELINE_CSV_PATH = PIPELINE_PATHS["pipeline_csv_path"]
-ANNOTATION_FILE_PATH = PIPELINE_PATHS["annotation_file_path"]
-FAILED_VALIDATION_DIR = PIPELINE_PATHS["failed_validation_directory"]
-LABEL_PRIORITIES = fetch_label_priorities()
-LABEL_CLASS_MAP = fetch_label_class_mapping()
-DEFAULT_CLASSES = ["Normal", "Bruch", "Farbfehler", "Rest"]
+
+def _load_json_file(path, error_msg):
+    if not os.path.exists(path):
+        raise FileNotFoundError(error_msg)
+    with open(path, encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+@lru_cache(maxsize=1)
+def load_parameter_config():
+    return _load_json_file(
+        PARAMETER_FILE,
+        f"Parameterdatei '{PARAMETER_FILE}' nicht gefunden.",
+    )
+
+
+@lru_cache(maxsize=1)
+def load_classification_config():
+    return _load_json_file(
+        CLASSIFICATION_FILE,
+        f"Klassifikationsdatei '{CLASSIFICATION_FILE}' nicht gefunden.",
+    )
+
+
+def _normalize_path_value(path_value):
+    return os.path.normpath(path_value) if path_value else ""
+
+
+def fetch_pipeline_paths():
+    paths_cfg = load_parameter_config().get("paths", {})
+    return {key: _normalize_path_value(value) for key, value in paths_cfg.items()}
+
+
+def fetch_label_priorities():
+    return dict(load_classification_config().get("label_priorities", {}))
+
+
+def fetch_label_class_mapping():
+    return dict(load_classification_config().get("label_class_map", {}))
 
 
 def normalize_annotation_path(path):
@@ -26,6 +58,31 @@ def normalize_annotation_path(path):
     if marker in normalized:
         normalized = normalized.split(marker, 1)[1]
     return normalized.lstrip("/")
+
+
+def render_text_table(headers, rows, indent="  "):
+    """Gibt eine Tabelle mit fester Spaltenbreite aus."""
+    widths = [len(header) for header in headers]
+    for row in rows:
+        for i, value in enumerate(row):
+            widths[i] = max(widths[i], len(value))
+    header_line = indent + " | ".join(
+        headers[i].ljust(widths[i]) for i in range(len(headers))
+    )
+    divider_line = indent + "-+-".join("-" * widths[i] for i in range(len(headers)))
+    print(header_line)
+    print(divider_line)
+    for row in rows:
+        print(indent + " | ".join(row[i].ljust(widths[i]) for i in range(len(row))))
+    print()
+
+PIPELINE_PATHS = fetch_pipeline_paths()
+PIPELINE_CSV_PATH = PIPELINE_PATHS["pipeline_csv_path"]
+ANNOTATION_FILE_PATH = PIPELINE_PATHS["annotation_file_path"]
+FAILED_VALIDATION_DIR = PIPELINE_PATHS["failed_validation_directory"]
+LABEL_PRIORITIES = fetch_label_priorities()
+LABEL_CLASS_MAP = fetch_label_class_mapping()
+DEFAULT_CLASSES = ["Normal", "Bruch", "Farbfehler", "Rest"]
 
 
 def select_priority_label(raw_label, label_priorities):
@@ -58,23 +115,6 @@ def load_annotation_classes(annotation_file, label_priorities, label_class_map):
             annotations[rel_path] = label_class_map.get(base_label, "Rest")
 
     return annotations
-
-
-def render_text_table(headers, rows, indent="  "):
-    """Gibt eine Tabelle mit fester Spaltenbreite aus."""
-    widths = [len(header) for header in headers]
-    for row in rows:
-        for i, value in enumerate(row):
-            widths[i] = max(widths[i], len(value))
-    header_line = indent + " | ".join(
-        headers[i].ljust(widths[i]) for i in range(len(headers))
-    )
-    divider_line = indent + "-+-".join("-" * widths[i] for i in range(len(headers)))
-    print(header_line)
-    print(divider_line)
-    for row in rows:
-        print(indent + " | ".join(row[i].ljust(widths[i]) for i in range(len(row))))
-    print()
 
 
 def build_priority_chain(label_priorities, label_class_map):

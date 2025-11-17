@@ -1,16 +1,111 @@
 import csv
 import json
 import os
+from functools import lru_cache
 
 import cv2
 import numpy as np
 
-from main import (
-    fetch_geometry_settings,
-    fetch_pipeline_paths,
-    fetch_spot_detection_settings,
-)
-from validation import normalize_annotation_path
+BASE_DIR = os.path.dirname(__file__)
+PARAMETER_FILE = os.path.join(BASE_DIR, "parameter.json")
+
+
+def _load_json_file(path, error_msg):
+    if not os.path.exists(path):
+        raise FileNotFoundError(error_msg)
+    with open(path, encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+@lru_cache(maxsize=1)
+def load_parameter_config():
+    return _load_json_file(
+        PARAMETER_FILE,
+        f"Parameterdatei '{PARAMETER_FILE}' nicht gefunden.",
+    )
+
+
+def _normalize_path_value(path_value):
+    return os.path.normpath(path_value) if path_value else ""
+
+
+def _get_parameter_section(cfg_name):
+    return load_parameter_config().get(cfg_name, {})
+
+
+def _coerce_config_value(cfg, key, default, transform=None):
+    value = cfg.get(key, default)
+    return transform(value) if transform else value
+
+
+def fetch_pipeline_paths():
+    return {
+        key: _normalize_path_value(value)
+        for key, value in _get_parameter_section("paths").items()
+    }
+
+
+def fetch_geometry_settings():
+    cfg = _get_parameter_section("geometry")
+    return {
+        "polygon_epsilon_factor": _coerce_config_value(
+            cfg,
+            "polygon_epsilon_factor",
+            0.0,
+        ),
+        "minimum_hole_area": _coerce_config_value(cfg, "minimum_hole_area", 0),
+        "minimum_window_area": _coerce_config_value(cfg, "minimum_window_area", 0),
+        "maximum_center_area": _coerce_config_value(cfg, "maximum_center_area", 0),
+        "minimum_fragment_area": _coerce_config_value(cfg, "minimum_fragment_area", 0),
+    }
+
+
+def fetch_spot_detection_settings():
+    cfg = _get_parameter_section("spot")
+    return {
+        "erosion_kernel_size": tuple(
+            _coerce_config_value(cfg, "erosion_kernel_size", [0, 0])
+        ),
+        "erosion_iterations": _coerce_config_value(cfg, "erosion_iterations", 0),
+        "blackhat_kernel_size": tuple(
+            _coerce_config_value(cfg, "blackhat_kernel_size", [0, 0])
+        ),
+        "blackhat_contrast_threshold": _coerce_config_value(
+            cfg,
+            "blackhat_contrast_threshold",
+            0,
+        ),
+        "noise_kernel_size": tuple(
+            _coerce_config_value(cfg, "noise_kernel_size", [0, 0])
+        ),
+        "minimum_spot_area": _coerce_config_value(cfg, "minimum_spot_area", 0),
+        "spot_area_ratio": _coerce_config_value(cfg, "spot_area_ratio", 0.0),
+        "fine_erosion_iterations": _coerce_config_value(
+            cfg,
+            "fine_erosion_iterations",
+            0,
+        ),
+        "inner_erosion_iterations": _coerce_config_value(
+            cfg,
+            "inner_erosion_iterations",
+            0,
+        ),
+        "inner_spot_ratio": _coerce_config_value(cfg, "inner_spot_ratio", 0.0),
+        "fine_spot_ratio": _coerce_config_value(cfg, "fine_spot_ratio", 0.0),
+        "fine_spot_area": _coerce_config_value(cfg, "fine_spot_area", 0),
+        "dark_percentile": _coerce_config_value(cfg, "dark_percentile", 0),
+    }
+
+
+def normalize_annotation_path(path):
+    """Normalisiert relative Pfade analog zu den Annotationen."""
+    if not path:
+        return ""
+    normalized = path.replace("\\", "/")
+    marker = "Data/Images/"
+    if marker in normalized:
+        normalized = normalized.split(marker, 1)[1]
+    return normalized.lstrip("/")
 
 PIPELINE_PATHS = fetch_pipeline_paths()
 PROCESSED_IMAGE_DIR = PIPELINE_PATHS["processed_image_directory"]

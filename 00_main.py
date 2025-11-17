@@ -1,5 +1,6 @@
 import json
 import os
+import runpy
 from functools import lru_cache
 
 import numpy as np
@@ -9,24 +10,11 @@ PARAMETER_FILE = os.path.join(BASE_DIR, "parameter.json")
 CLASSIFICATION_FILE = os.path.join(BASE_DIR, "classification.json")
 
 
-def _normalize_path_value(path_value):
-    return os.path.normpath(path_value) if path_value else ""
-
-
 def _load_json_file(path, error_msg):
     if not os.path.exists(path):
         raise FileNotFoundError(error_msg)
     with open(path, encoding="utf-8") as handle:
         return json.load(handle)
-
-
-def _get_parameter_section(cfg_name):
-    return load_parameter_config().get(cfg_name, {})
-
-
-def _coerce_config_value(cfg, key, default, transform=None):
-    value = cfg.get(key, default)
-    return transform(value) if transform else value
 
 
 @lru_cache(maxsize=1)
@@ -45,15 +33,24 @@ def load_classification_config():
     )
 
 
+def _normalize_path_value(path_value):
+    return os.path.normpath(path_value) if path_value else ""
+
+
+def _get_parameter_section(cfg_name):
+    return load_parameter_config().get(cfg_name, {})
+
+
+def _coerce_config_value(cfg, key, default, transform=None):
+    value = cfg.get(key, default)
+    return transform(value) if transform else value
+
+
 def fetch_pipeline_paths():
     return {
         key: _normalize_path_value(value)
         for key, value in _get_parameter_section("paths").items()
     }
-
-
-def is_sort_logging_enabled():
-    return bool(load_parameter_config().get("sort_log", True))
 
 
 def fetch_preprocessing_settings():
@@ -142,6 +139,11 @@ def fetch_label_rules():
     return list(load_classification_config().get("label_rules", []))
 
 
+def is_sort_logging_enabled():
+    return bool(load_parameter_config().get("sort_log", True))
+
+BASE_DIR = os.path.dirname(__file__)
+
 PATHS = fetch_pipeline_paths()
 RAW_IMAGE_DIR = PATHS["raw_image_directory"]
 PIPELINE_OUTPUT_DIR = PATHS["pipeline_output_directory"]
@@ -160,15 +162,16 @@ LABEL_PRIORITIES = fetch_label_priorities()
 LABEL_CLASS_MAP = fetch_label_class_mapping()
 
 
+def _load_pipeline_module(filename):
+    return runpy.run_path(os.path.join(BASE_DIR, filename))
+
+
 def run_complete_inspection_pipeline():
-    from classification import classify_pipeline_from_csv
-    from image_processing import process_directory_to_csv
-    from segmentation import segment_directory_images
-    from sorting import sort_images_from_pipeline_csv
-    from validation import (
-        load_annotation_classes,
-        validate_predictions_against_annotations,
-    )
+    segmentation = _load_pipeline_module("01_segmentation.py")
+    image_processing = _load_pipeline_module("02_image_processing.py")
+    classification = _load_pipeline_module("03_classification.py")
+    sorting = _load_pipeline_module("04_sorting.py")
+    validation = _load_pipeline_module("05_validation.py")
 
     os.makedirs(PIPELINE_OUTPUT_DIR, exist_ok=True)
 
@@ -176,34 +179,34 @@ def run_complete_inspection_pipeline():
         print(f"Fehler: Quellordner '{RAW_IMAGE_DIR}' nicht gefunden.")
         return
 
-    segment_directory_images(
+    segmentation["segment_directory_images"](
         RAW_IMAGE_DIR,
         PROCESSED_IMAGE_DIR,
         PREPROCESSING_SETTINGS,
     )
-    process_directory_to_csv(
+    image_processing["process_directory_to_csv"](
         PROCESSED_IMAGE_DIR,
         PIPELINE_CSV_PATH,
         GEOMETRY_SETTINGS,
         SPOT_SETTINGS,
     )
-    predictions = classify_pipeline_from_csv(
+    predictions = classification["classify_pipeline_from_csv"](
         PIPELINE_CSV_PATH,
         CLASSIFIER_RULES,
         SORT_LOG_ENABLED,
     )
-    sort_images_from_pipeline_csv(
+    sorting["sort_images_from_pipeline_csv"](
         PIPELINE_CSV_PATH,
         SORTED_OUTPUT_DIR,
         SORT_LOG_ENABLED,
     )
 
-    annotations = load_annotation_classes(
+    annotations = validation["load_annotation_classes"](
         ANNOTATION_FILE_PATH,
         LABEL_PRIORITIES,
         LABEL_CLASS_MAP,
     )
-    validate_predictions_against_annotations(
+    validation["validate_predictions_against_annotations"](
         predictions,
         annotations,
         FAILED_VALIDATION_DIR,

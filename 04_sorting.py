@@ -1,10 +1,59 @@
 import csv
+import json
 import os
 import shutil
 import stat
+from functools import lru_cache
 
-from main import fetch_pipeline_paths, is_sort_logging_enabled
-from validation import render_text_table
+BASE_DIR = os.path.dirname(__file__)
+PARAMETER_FILE = os.path.join(BASE_DIR, "parameter.json")
+
+
+def _load_json_file(path, error_msg):
+    if not os.path.exists(path):
+        raise FileNotFoundError(error_msg)
+    with open(path, encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+@lru_cache(maxsize=1)
+def load_parameter_config():
+    return _load_json_file(
+        PARAMETER_FILE,
+        f"Parameterdatei '{PARAMETER_FILE}' nicht gefunden.",
+    )
+
+
+def _normalize_path_value(path_value):
+    return os.path.normpath(path_value) if path_value else ""
+
+
+def fetch_pipeline_paths():
+    return {
+        key: _normalize_path_value(value)
+        for key, value in load_parameter_config().get("paths", {}).items()
+    }
+
+
+def is_sort_logging_enabled():
+    return bool(load_parameter_config().get("sort_log", True))
+
+
+def render_text_table(headers, rows, indent="  "):
+    """Gibt eine Tabelle mit fester Spaltenbreite aus."""
+    widths = [len(header) for header in headers]
+    for row in rows:
+        for i, value in enumerate(row):
+            widths[i] = max(widths[i], len(value))
+    header_line = indent + " | ".join(
+        headers[i].ljust(widths[i]) for i in range(len(headers))
+    )
+    divider_line = indent + "-+-".join("-" * widths[i] for i in range(len(headers)))
+    print(header_line)
+    print(divider_line)
+    for row in rows:
+        print(indent + " | ".join(row[i].ljust(widths[i]) for i in range(len(row))))
+    print()
 
 PIPELINE_PATHS = fetch_pipeline_paths()
 PIPELINE_CSV_PATH = PIPELINE_PATHS["pipeline_csv_path"]

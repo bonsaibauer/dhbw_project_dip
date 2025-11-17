@@ -10,10 +10,21 @@
   },
   "sort_log": true,
   "preprocessing": {
-    "HSV_LO": [35, 40, 30],
-    "HSV_HI": [85, 255, 255],
+    "HSV_LO": [
+      35,
+      40,
+      30
+    ],
+    "HSV_HI": [
+      85,
+      255,
+      255
+    ],
     "CNT_MINA": 30000,
-    "WARP_SZ": [600, 400],
+    "WARP_SZ": [
+      600,
+      400
+    ],
     "TGT_W": 400,
     "TGT_H": 400
   },
@@ -25,11 +36,20 @@
     "FRAG_MIN": 6000
   },
   "spot": {
-    "ERO_KN": [5, 5],
+    "ERO_KN": [
+      5,
+      5
+    ],
     "ERO_ITER": 4,
-    "BKH_KN": [15, 15],
+    "BKH_KN": [
+      15,
+      15
+    ],
     "BKH_CON": 30,
-    "NOI_KN": [2, 2],
+    "NOI_KN": [
+      2,
+      2
+    ],
     "SPT_MIN": 60,
     "SPT_RAT": 0.0008,
     "FERO_ITR": 1,
@@ -60,26 +80,5 @@
     "EDGE_DMG": 1.15,
     "EDGE_SEG": 14,
     "BRK_SYM": 80
-  },
-  "label_priorities": {
-    "bruch": 0,
-    "rest": 1,
-    "farbfehler": 2,
-    "normal": 3
-  },
-  "label_class_map": {
-    "normal": "Normal",
-    "different colour spot": "Farbfehler",
-    "similar colour spot": "Farbfehler",
-    "burnt": "Farbfehler",
-    "farbfehler": "Farbfehler",
-    "middle breakage": "Bruch",
-    "corner or edge breakage": "Bruch",
-    "bruch": "Bruch",
-    "fryum stuck together": "Rest",
-    "small scratches": "Rest",
-    "other": "Rest",
-    "fragment": "Rest",
-    "rest": "Rest"
   }
 }

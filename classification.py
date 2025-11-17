@@ -4,13 +4,24 @@ import os
 
 import numpy as np
 
-from settings import get_classifier_rules, get_paths, get_sort_log
+from settings import (
+    get_classifier_rules,
+    get_label_class_map,
+    get_label_priorities,
+    get_label_rules,
+    get_paths,
+    get_sort_log,
+)
 
 PATHS = get_paths()
 PIPELINE_CSV = PATHS["PIPELINE_CSV"]
 CLASSIFIER_RULES = get_classifier_rules()
+LABEL_CLASS_MAP = get_label_class_map()
+LABEL_PRIORITIES = get_label_priorities()
 SORT_LOG = get_sort_log()
 
+
+LABEL_RULES = get_label_rules()
 
 def progress_bar(prefix, current, total, bar_len=30):
     if total <= 0:
@@ -42,6 +53,146 @@ def parse_int(value, default=0):
         return int(float(value))
     except (TypeError, ValueError):
         return int(default)
+
+
+def compute_symmetry_score(areas, sensitivity):
+    if not areas:
+        return 0.0
+    mean_val = float(np.mean(areas))
+    if mean_val <= 0:
+        return 0.0
+    std_val = float(np.std(areas))
+    cv_value = std_val / mean_val if mean_val else 0.0
+    raw_score = 100 * (1 - (cv_value * sensitivity))
+    return max(0.0, min(100.0, round(raw_score, 1)))
+
+
+def compute_features(row, sym_sen):
+    areas = json.loads(row.get("window_areas") or "[]")
+    num_windows = parse_int(row.get("num_windows"))
+    has_center_hole = parse_bool(row.get("has_center_hole"))
+    total_holes = num_windows + (1 if has_center_hole else 0)
+    avg_window = float(np.mean(areas)) if areas else 0.0
+    min_window = float(np.min(areas)) if areas else 0.0
+    max_window = float(np.max(areas)) if areas else 0.0
+    if min_window > 0:
+        window_ratio = max_window / min_window
+    else:
+        window_ratio = 1.0
+    symmetry_score = compute_symmetry_score(areas, sym_sen)
+
+    geo_area = parse_float(row.get("area"))
+    geo_convex = parse_float(row.get("convex_area"))
+    hull_ratio = (geo_convex / geo_area) if geo_area else 0.0
+
+    spot_area = parse_int(row.get("spot_area"))
+    texture_std = parse_float(row.get("texture_std"))
+    lab_std = parse_float(row.get("lab_std"))
+    dark_delta = parse_float(row.get("dark_delta"))
+    color_flag = parse_bool(row.get("spot_is_defective"))
+
+    features = {
+        "areas": areas,
+        "num_windows": num_windows,
+        "has_center_hole": has_center_hole,
+        "total_holes": total_holes,
+        "avg_window": avg_window,
+        "window_ratio": window_ratio,
+        "symmetry": symmetry_score,
+        "hull_ratio": hull_ratio,
+        "edge_damage": parse_float(row.get("edge_damage")),
+        "edge_segments": parse_int(row.get("edge_segments")),
+        "fragment_count": parse_int(row.get("fragment_count")),
+        "outer_count": parse_int(row.get("outer_count")),
+        "is_anomaly": parse_bool(row.get("is_anomaly")),
+        "has_object": parse_bool(row.get("has_object")),
+        "spot_area": spot_area,
+        "texture_std": texture_std,
+        "lab_std": lab_std,
+        "dark_delta": dark_delta,
+        "color_flag": color_flag,
+    }
+    color_threshold = 40
+    features["has_color"] = (
+        color_flag
+        or spot_area >= color_threshold
+        or texture_std >= 12
+        or lab_std >= 5
+        or dark_delta >= 18
+    )
+    return features
+
+
+def check_condition(value, condition):
+    op = condition.get("op", ">=")
+    if op == "between":
+        min_val = condition.get("min", float("-inf"))
+        max_val = condition.get("max", float("inf"))
+        return min_val <= value <= max_val
+    target = condition.get("value")
+    if op == ">=":
+        return value >= target
+    if op == "<=":
+        return value <= target
+    if op == ">":
+        return value > target
+    if op == "<":
+        return value < target
+    if op == "==":
+        return value == target
+    if op == "!=":
+        return value != target
+    if op == "in":
+        return value in condition.get("values", [])
+    return False
+
+
+def evaluate_label_rule(rule, features):
+    score = rule.get("base_score", 0.0)
+    matched_reasons = []
+    for condition in rule.get("conditions", []):
+        metric_value = features.get(condition.get("metric"), 0)
+        if check_condition(metric_value, condition):
+            score += condition.get("weight", 1.0)
+            template = condition.get("reason")
+            if template:
+                try:
+                    matched_reasons.append(template.format(**features))
+                except (KeyError, ValueError):
+                    matched_reasons.append(template)
+    if score >= rule.get("min_score", 1.0):
+        reason = "; ".join(matched_reasons[:2]) or rule.get("fallback_reason", "")
+        return {
+            "label": rule["label"],
+            "score": round(score, 3),
+            "reason": reason,
+        }
+    return None
+
+
+def evaluate_label_ruleset(features):
+    decisions = []
+    for rule in LABEL_RULES:
+        result = evaluate_label_rule(rule, features)
+        if not result:
+            continue
+        target_class = LABEL_CLASS_MAP.get(rule["label"], rule["label"].title())
+        result["class"] = target_class
+        decisions.append(result)
+    return decisions
+
+
+def select_decision(decisions):
+    if not decisions:
+        return None
+    decisions.sort(
+        key=lambda item: (
+            -item["score"],
+            LABEL_PRIORITIES.get(item["class"].lower(), 100),
+            item["label"],
+        )
+    )
+    return decisions[0]
 
 
 def load_feature_rows(csv_path):
@@ -76,248 +227,62 @@ def classify_from_csv(csv_path, classifier_rules, sort_log):
     if not rows:
         return []
 
-    rwa_base = classifier_rules["RWA_BASE"]
-    rwa_strg = classifier_rules["RWA_STRG"]
-    rwa_cmp = classifier_rules["RWA_CMP"]
-    rwa_lrg = classifier_rules["RWA_LRG"]
-    rhl_base = classifier_rules["RHL_BASE"]
-    rhl_strg = classifier_rules["RHL_STRG"]
-    rwr_base = classifier_rules["RWR_BASE"]
-    rwr_strg = classifier_rules["RWR_STRG"]
-    rmult_sp = classifier_rules["RMULT_SP"]
-    col_str = classifier_rules["COL_STR"]
-    col_spt = classifier_rules["COL_SPT"]
-    txt_std = classifier_rules["TXT_STD"]
-    col_sym = classifier_rules["COL_SYM"]
-    col_lab = classifier_rules["COL_LAB"]
-    lab_std = classifier_rules["LAB_STD"]
-    drk_dlt = classifier_rules["DRK_DLT"]
-    sym_sen = classifier_rules["SYM_SEN"]
-    edge_dmg = classifier_rules["EDGE_DMG"]
-    edge_seg = classifier_rules["EDGE_SEG"]
-    brk_sym = classifier_rules["BRK_SYM"]
+    sym_sen = classifier_rules.get('SYM_SEN', 1.0)
 
     predictions = []
-
     total_files = len(rows)
 
     for idx, row in enumerate(rows, 1):
-        areas = json.loads(row.get("window_areas") or "[]")
-        rel_path = row.get("relative_path", "")
-        filename = row.get("filename") or os.path.basename(row.get("source_path", ""))
+        rel_path = row.get('relative_path', '')
+        filename = row.get('filename') or os.path.basename(row.get('source_path', ''))
 
-        geo_area = parse_float(row.get("area"))
-        geo_convex = parse_float(row.get("convex_area"))
-        edge_damage = parse_float(row.get("edge_damage"))
-        edge_segments = parse_int(row.get("edge_segments"))
-        num_windows = parse_int(row.get("num_windows"))
-        has_center_hole = parse_bool(row.get("has_center_hole"))
-        fragment_count = parse_int(row.get("fragment_count"))
-        outer_count = parse_int(row.get("outer_count"))
-        has_object = parse_bool(row.get("has_object"))
-        is_anomaly = parse_bool(row.get("is_anomaly"))
-
-        color_entries = {
-            "is_defective": parse_bool(row.get("spot_is_defective")),
-            "spot_area": parse_int(row.get("spot_area")),
-            "texture_std": parse_float(row.get("texture_std")),
-            "lab_std": parse_float(row.get("lab_std")),
-            "dark_delta": parse_float(row.get("dark_delta")),
-            "median_intensity": parse_float(row.get("median_intensity")),
-        }
-
-        target_class = "Normal"
-        reason = "OK"
-        file_prefix = ""
-
-        total_holes = num_windows + (1 if has_center_hole else 0)
-        avg_window = np.mean(areas) if areas else 0
-        hull_ratio = (geo_convex / max(1, geo_area)) if geo_area else 0
-        window_ratio = (
-            (max(areas) / max(1, min(areas))) if areas and min(areas) > 0 else 1
-        )
-
-        symmetry_score = 0.0
-        if len(areas) > 0:
-            mean_a = np.mean(areas)
-            std_a = np.std(areas)
-            cv_value = std_a / mean_a if mean_a > 0 else 0
-            raw_score = 100 * (1 - (cv_value * sym_sen))
-            symmetry_score = max(0.0, min(100.0, round(raw_score, 1)))
-
-        rest_reason = None
-        rest_strength = 0
-        rest_window_hint = False
-        rest_multi_hint = False
-        rest_structural_hint = False
-        if is_anomaly:
-            rest_hints = []
-            if fragment_count > 0:
-                rest_hints.append((3, f"Fragmente: {fragment_count}"))
-                rest_structural_hint = True
-            if outer_count > 1:
-                strength = 2 if outer_count > 2 else 1
-                rest_hints.append((strength, f"Mehrfachobj.: {outer_count}"))
-                rest_multi_hint = True
-                rest_structural_hint = True
-            if hull_ratio >= rhl_strg:
-                rest_hints.append((2, f"Hülle: {hull_ratio:.2f}"))
-                rest_structural_hint = True
-            elif hull_ratio >= rhl_base:
-                rest_hints.append((1, f"Hülle: {hull_ratio:.2f}"))
-            if areas and avg_window > 0:
-                if avg_window <= rwa_base and window_ratio >= rwr_base:
-                    strong = avg_window <= rwa_strg and window_ratio >= rwr_strg
-                    rest_hints.append(
-                        (2 if strong else 1, f"Fensterverh.: {window_ratio:.1f}")
-                    )
-                    rest_window_hint = True
-                if avg_window <= rwa_cmp:
-                    rest_hints.append((1, f"Fenster klein: {avg_window:.0f}"))
-                    rest_window_hint = True
-                if avg_window >= rwa_lrg and window_ratio <= 1.3:
-                    rest_hints.append((1, f"Fenster groß: {avg_window:.0f}"))
-                    rest_window_hint = True
-            if rest_hints:
-                rest_strength, rest_reason = max(rest_hints, key=lambda item: item[0])
-
-        if not rest_structural_hint:
-            rest_strength = min(rest_strength, 1)
-
-        if is_anomaly:
-            col_res = color_entries
-        else:
-            col_res = {
-                "is_defective": False,
-                "spot_area": 0,
-                "texture_std": 0,
-                "lab_std": 0,
-                "dark_delta": 0,
-                "median_intensity": 0,
+        features = compute_features(row, sym_sen)
+        decisions = evaluate_label_ruleset(features)
+        decision = select_decision(decisions)
+        if decision is None:
+            fallback_label = 'rest' if features.get('is_anomaly') else 'normal'
+            decision = {
+                'label': fallback_label,
+                'class': LABEL_CLASS_MAP.get(fallback_label, fallback_label.title()),
+                'score': 0.0,
+                'reason': 'Fallback',
             }
 
-        color_candidate = None
-        color_strength = 0
-        if is_anomaly:
-            def assign_color(reason_text, strength):
-                nonlocal color_candidate, color_strength
-                if strength > color_strength:
-                    color_candidate = ("Farbfehler", reason_text)
-                    color_strength = strength
+        label_title = decision['label'].title()
+        class_name = decision['class']
+        decision_reason = decision.get('reason') or 'Regel erfüllt'
+        reason = f"{label_title}: {decision_reason}"
 
-            if col_res["is_defective"]:
-                assign_color(f"Fleck: {col_res['spot_area']}px", 2)
-            if col_res["spot_area"] >= col_str:
-                assign_color(f"Fleck: {col_res['spot_area']}px", 2)
-            if (
-                col_res["spot_area"] >= col_spt
-                and col_res.get("texture_std", 0) > txt_std
-                and symmetry_score >= col_sym
-            ):
-                assign_color(f"Textur: {col_res['texture_std']:.1f}", 1)
-            if (
-                col_res["spot_area"] >= col_lab
-                and col_res.get("lab_std", 0) > lab_std
-                and symmetry_score >= col_sym
-            ):
-                assign_color(f"Farbe: {col_res['lab_std']:.1f}", 1)
-            if col_res.get("dark_delta", 0) > drk_dlt and symmetry_score >= col_sym:
-                assign_color(f"Dunkelanteil: {col_res['dark_delta']:.1f}", 1)
-
-        if color_candidate and rest_strength > 1 and not rest_multi_hint and fragment_count == 0:
-            rest_strength = 1
-
-        multi_outer_spot = (
-            is_anomaly
-            and outer_count > 1
-            and col_res.get("spot_area", 0) >= rmult_sp
-        )
-        if multi_outer_spot:
-            rest_strength = max(rest_strength, 2)
-            rest_reason = rest_reason or f"Mehrfachobj.: {outer_count}"
-
-        if color_candidate and rest_strength > 1 and not multi_outer_spot:
-            rest_strength = 1
-
-        if not has_object:
-            target_class = "Rest"
-            reason = "Kein Objekt"
-        elif total_holes < 7:
-            if color_candidate and color_strength >= 2:
-                target_class, reason = color_candidate
-            elif rest_strength >= 2:
-                target_class = "Rest"
-                reason = rest_reason or f"Unklare Form ({total_holes})"
-            else:
-                target_class = "Bruch"
-                reason = f"Zu wenig Löcher: {total_holes}"
-        elif total_holes > 7:
-            target_class = "Rest"
-            reason = f"Zu viele Fragmente: {total_holes}"
+        if class_name == 'Normal':
+            file_prefix = f"{features['symmetry']:06.2f}_"
         else:
-            if is_anomaly and rest_strength >= 2:
-                target_class = "Rest"
-                reason = rest_reason or "Starker Resthinweis"
-            else:
-                classified = False
-                if color_candidate and (color_strength >= 2 or rest_strength <= 1):
-                    target_class, reason = color_candidate
-                    classified = True
-                if (
-                    not classified
-                    and (edge_damage >= edge_dmg or edge_segments >= edge_seg)
-                    and color_strength < 2
-                ):
-                    target_class = "Bruch"
-                    reason = f"Kante: {edge_damage:.2f}"
-                    classified = True
-                if not classified and color_candidate:
-                    target_class, reason = color_candidate
-                    classified = True
-                else:
-                    if target_class == "Normal":
-                        reason = f"Symmetrie: {symmetry_score:.2f}%"
-
-                if not classified:
-                    if target_class == "Normal" and rest_strength >= 1 and rest_reason:
-                        target_class = "Rest"
-                        reason = rest_reason
-                    elif is_anomaly and symmetry_score < brk_sym:
-                        target_class = "Bruch"
-                        reason = f"Asymmetrie: {symmetry_score:.2f}%"
-                    elif target_class == "Normal":
-                        reason = f"Symmetrie: {symmetry_score:.2f}%"
-
-        if target_class == "Normal":
-            file_prefix = f"{symmetry_score:06.2f}_"
-            if not reason or reason == "OK":
-                reason = f"Symmetrie: {symmetry_score:.2f}%"
-        else:
-            file_prefix = ""
+            file_prefix = ''
 
         new_filename = f"{file_prefix}{filename}"
 
-        row["target_class"] = target_class
-        row["reason"] = reason
-        row["destination_filename"] = new_filename
+        row['target_label'] = decision['label']
+        row['target_class'] = class_name
+        row['reason'] = reason
+        row['destination_filename'] = new_filename
 
         predictions.append(
             {
-                "relative_path": rel_path,
-                "predicted": target_class,
-                "source_path": row.get("source_path", ""),
-                "reason": reason,
-                "original_name": filename,
+                'relative_path': rel_path,
+                'predicted': class_name,
+                'label': decision['label'],
+                'source_path': row.get('source_path', ''),
+                'reason': reason,
+                'original_name': filename,
             }
         )
 
         if sort_log and total_files > 0:
-            progress_bar("  Klassifizierung", idx, total_files)
+            progress_bar('  Klassifizierung', idx, total_files)
 
     if sort_log and total_files > 0:
         print()
 
-    required_columns = ["target_class", "reason", "destination_filename"]
+    required_columns = ['target_label', 'target_class', 'reason', 'destination_filename']
     final_fields = ensure_columns(fieldnames, required_columns)
     store_rows(csv_path, final_fields, rows)
 

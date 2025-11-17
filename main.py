@@ -41,33 +41,33 @@ RWR_STRG = 5.0  # Starker Fenster-Verhältnis-Check; höher = strenger, niedrige
 RMULT_SP = 80  # Spotfläche für Mehrfachobjekt-Bewertung; höher = ignoriert kleinere Flecken, niedriger = reagiert früher; Range 40–250 px.
 
 # --- Farb-/Spotprüfung (spot_det, sort_run) ---
-ERO_KN = (4, 4)  # Kernel für grobe Erosion; größer = mehr Randverlust, kleiner = mehr Rauschen; Range 3–9 px.                              4,4
+ERO_KN = (4, 4)  # Kernel für grobe Erosion; größer = mehr Randverlust, kleiner = mehr Rauschen; Range 3–9 px.                               4,4
 ERO_ITER = 4  # Anzahl grober Erosionen; höher = glatter Rand, niedriger = mehr Kantenrauschen; Range 2–6.                                  mittel
-BKH_KN = (10, 10)  # Kernel für Blackhat; größer = sucht größere Flecken, kleiner = empfindlich auf Rauschen; Range 7–25 px.                10, 10
+BKH_KN = (13, 13)  # Kernel für Blackhat; größer = sucht größere Flecken, kleiner = empfindlich auf Rauschen; Range 7–25 px.                13, 13
 BKH_CON = 30  # Kontrastlimit für Fleckmaske; höher = nur starke Flecken, niedriger = mehr False-Positives; Range 10–60.                    30
 NOI_KN = (2, 2)  # Kernel für Rausch-Öffnung; größer = entfernt auch echte Spots, kleiner = lässt Noise; Range 1–4 px.                      2,2
 SPT_MIN = 30  # Spotfläche für grobe Defekte; höher = nur große Flecken, niedriger = mehr Meldungen; Range 20–150 px.                       30
-SPT_RAT = 0.008  # Relativer Fleckenanteil; höher = streng, niedriger = empfindlich; Range 0.0003–0.002.
+SPT_RAT = 0.05  # Relativer Fleckenanteil; höher = streng, niedriger = empfindlich; Range 0.0003–0.002.
 FERO_ITR = 0  # Iterationen der Fein-Erosion; höher = kleinerer Innenbereich, niedriger = mehr Hintergrund; Range 0–3.
-SPT_FIN = 20  # Mindestfläche bei Feinprüfung; höher = ignoriert kleine Spots, niedriger = früher Alarm; Range 5–80 px.
-FSPT_RAT = 0.0008  # Relativanteil bei Feinprüfung; höher = strenger, niedriger = empfindlicher; Range 0.0003–0.002.
-TXT_STD = 15.0  # Textur-STD-Grenze; höher = weniger Farbalarme, niedriger = empfindlicher; Range 8–25.
-INER_ITR = 4  # Innen-Erosion für Spotüberprüfung; höher = stärkerer Innenfokus, niedriger = mehr Rand; Range 0–4.
-INSP_RAT = 0.45  # Anteil innerer Spots; höher = strenger, niedriger = auch Randflecken; Range 0.2–0.8.
-LAB_STD = 4.0  # LAB-a Standardabweichung; höher = nur starke Farbstiche, niedriger = frühzeitiger Alarm; Range 2–10.
-COL_SYM = 60  # Symmetrie-Minimum für Farbalarm; höher = verlangt bessere Geometrie, niedriger = erlaubt unsymmetrische Teile; Range 40–90.
-COL_SPT = 30  # Mindestfläche für Textur-Farbcheck; höher = ignoriert kleine Spots, niedriger = rauschig; Range 10–80 px.
-COL_LAB = 100  # Mindestfläche für LAB-Alarm; höher = strenger, niedriger = empfindlicher; Range 20–100 px.
-COL_STR = 80  # Starke Fleckschwelle; höher = nur sehr große Flecken, niedriger = viele harte Hinweise; Range 50–150 px.
-BRK_SYM = 100  # Symmetriewert für Bruch/Rest; höher = mehr Teile als Bruch, niedriger = mehr Rest; Range 60–90.                             
+SPT_FIN = 5  # Mindestfläche bei Feinprüfung; höher = ignoriert kleine Spots, niedriger = früher Alarm; Range 5–80 px.
+FSPT_RAT = 0.0002  # Relativanteil bei Feinprüfung; höher = strenger, niedriger = empfindlicher; Range 0.0003–0.002.        
+TXT_STD = 8.0  # Textur-STD-Grenze; höher = weniger Farbalarme, niedriger = empfindlicher; Range 8–25.                                      8
+INER_ITR = 1  # Innen-Erosion für Spotüberprüfung; höher = stärkerer Innenfokus, niedriger = mehr Rand; Range 0–4.                          0
+INSP_RAT = 0.2  # Anteil innerer Spots; höher = strenger, niedriger = auch Randflecken; Range 0.2–0.8.                                      0.2-0.4                              
+LAB_STD = 4.0  # LAB-a Standardabweichung; höher = nur starke Farbstiche, niedriger = frühzeitiger Alarm; Range 2–10.                       4.0
+COL_SYM = 40  # Symmetrie-Minimum für Farbalarm; höher = verlangt bessere Geometrie, niedriger = erlaubt unsymmetrische Teile; Range 40–90. 40
+COL_SPT = 30  # Mindestfläche für Textur-Farbcheck; höher = ignoriert kleine Spots, niedriger = rauschig; Range 10–80 px.                   30
+COL_LAB = 30  # Mindestfläche für LAB-Alarm; höher = strenger, niedriger = empfindlicher; Range 20–100 px.                                  30
+COL_STR = 150  # Starke Fleckschwelle; höher = nur sehr große Flecken, niedriger = viele harte Hinweise; Range 50–150 px.                   150
+BRK_SYM = 300  # Symmetriewert für Bruch/Rest; höher = mehr Teile als Bruch, niedriger = mehr Rest; Range 60–90.                            300  
 DRK_PCT = 4  # Perzentil für Dark-Delta; höher = betrachtet hellere Pixel, niedriger = tiefe Schatten; Range 1–15.                          tiefer
 DRK_DLT = 18  # Mindestrand für Dark-Delta; höher = nur starker Kontrast, niedriger = sensibler; Range 8–30.                                mittel
 DRK_MED = 80  # Mindestmedian für Dark-Check; höher = nur helle Snacks, niedriger = auch dunkle Snacks; Range 40–120.                       mittel
 DRK_SPT = 40  # Mindestspotfläche für Dark-Alarm; höher = ignoriert Kleines, niedriger = empfindlich; Range 10–80 px.                       mittel
 
 # --- Kantenschaden & Symmetrie (sort_run) ---
-EDGE_DMG = 1.05  # Verhältnis Hülle/Perimeter; höher = toleranter, niedriger = früher Bruchalarm; Range 1.0–1.5.
-EDGE_SEG = 14  # Max. Kantensegmente; höher = erlaubt zackigere Formen, niedriger = streng; Range 8–20.
+EDGE_DMG = 1.0 # Verhältnis Hülle/Perimeter; höher = toleranter, niedriger = früher Bruchalarm; Range 1.0–1.5.
+EDGE_SEG = 20  # Max. Kantensegmente; höher = erlaubt zackigere Formen, niedriger = streng; Range 8–20.
 SYM_SEN = 3.0  # Faktor für Symmetriepenalty; höher = Symmetrie strenger, niedriger = lockerer; Range 1.5–4.5.
 
 # Entscheidungsbaum (Detailfluss):

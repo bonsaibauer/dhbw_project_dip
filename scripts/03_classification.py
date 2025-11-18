@@ -51,13 +51,6 @@ def load_paths():
     }
 
 
-def classifier_settings():
-    cfg = class_config()
-    return {
-        "symmetry_sensitivity": cfg.get("symmetry_sensitivity", 1.0),
-    }
-
-
 def map_labels():
     return dict(class_config().get("label_class_map", {}))
 
@@ -74,11 +67,11 @@ SORT_LOG_ENABLED = True
 
 path_map = load_paths()
 pipe_csv = path_map["pipeline_csv_path"]
-class_cfg = classifier_settings()
 label_map = map_labels()
 label_rank = rank_labels()
 sort_flag = SORT_LOG_ENABLED
 rule_defs = rule_list()
+WINDOW_SIZE_VARIANCE_SENSITIVITY = 1.1
 
 
 # ---------------------------------------------------------------------------
@@ -156,7 +149,7 @@ def parse_int(value, default=0):
         return int(default)
 
 
-def window_score(areas, sensitivity):
+def window_size_variance_score(areas, sensitivity):
     if not areas:
         return 0.0
     mean_val = float(np.mean(areas))
@@ -168,7 +161,7 @@ def window_score(areas, sensitivity):
     return max(0.0, min(100.0, round(raw_score, 1)))
 
 
-def extract_metrics(row, sym_sen):
+def extract_metrics(row):
     window_areas = json.loads(row.get("geometry_window_area_list") or "[]")
     window_count = parse_int(row.get("geometry_window_count"))
     has_center_hole = parse_flag(row.get("geometry_has_center_hole"))
@@ -178,7 +171,9 @@ def extract_metrics(row, sym_sen):
     min_window = float(np.min(window_areas)) if window_areas else 0.0
     max_window = float(np.max(window_areas)) if window_areas else 0.0
     window_ratio = (max_window / min_window) if min_window > 0 else 1.0
-    symmetry_score = window_score(window_areas, sym_sen)
+    variance_score = window_size_variance_score(
+        window_areas, WINDOW_SIZE_VARIANCE_SENSITIVITY
+    )
 
     geo_area = parse_float(row.get("geometry_area"))
     geo_convex = parse_float(row.get("geometry_convex_area"))
@@ -197,7 +192,7 @@ def extract_metrics(row, sym_sen):
         "geometry_total_hole_count": total_holes,
         "geometry_window_area_avg": avg_window,
         "geometry_window_area_ratio": window_ratio,
-        "geometry_window_symmetry_score": symmetry_score,
+        "geometry_window_size_variance_score": variance_score,
         "geometry_hull_ratio": hull_ratio,
         "geometry_edge_damage_ratio": parse_float(
             row.get("geometry_edge_damage_ratio")
@@ -325,8 +320,8 @@ def format_reason(decision):
     return f"{label_title}: {detail}"
 
 
-def classify_row(row, sym_sen):
-    features = extract_metrics(row, sym_sen)
+def classify_row(row):
+    features = extract_metrics(row)
     decisions = eval_rules(features)
     decision = pick_decision(decisions) or fallback_pick(features)
     return decision, features
@@ -336,12 +331,11 @@ def classify_row(row, sym_sen):
 # Classification Workflow
 # ---------------------------------------------------------------------------
 
-def classify_csv(csv_path, classifier_settings, sort_log):
+def classify_csv(csv_path, sort_log):
     rows, fieldnames = read_rows(csv_path)
     if not rows:
         return []
 
-    sym_sen = classifier_settings.get("symmetry_sensitivity", 1.0)
     predictions = []
     total_files = len(rows)
 
@@ -349,15 +343,17 @@ def classify_csv(csv_path, classifier_settings, sort_log):
         rel_path = row.get("relative_path", "")
         filename = row.get("filename") or os.path.basename(row.get("source_path", ""))
 
-        decision, features = classify_row(row, sym_sen)
+        decision, features = classify_row(row)
         class_name = decision["class"]
         reason = format_reason(decision)
-        symmetry_score = features.get("geometry_window_symmetry_score", 0.0)
+        variance_score = features.get(
+            "geometry_window_size_variance_score", 0.0
+        )
 
         row["target_label"] = decision["label"]
         row["target_class"] = class_name
         row["reason"] = reason
-        row["geometry_window_symmetry_score"] = f"{symmetry_score:.4f}"
+        row["geometry_window_size_variance_score"] = f"{variance_score:.4f}"
 
         predictions.append(
             {
@@ -380,7 +376,7 @@ def classify_csv(csv_path, classifier_settings, sort_log):
         "target_label",
         "target_class",
         "reason",
-        "geometry_window_symmetry_score",
+        "geometry_window_size_variance_score",
     ]
     final_fields = ensure_cols(fieldnames, required_columns)
     write_rows(csv_path, final_fields, rows)
@@ -391,7 +387,6 @@ def classify_csv(csv_path, classifier_settings, sort_log):
 def classify_cli():
     classify_csv(
         pipe_csv,
-        class_cfg,
         sort_flag,
     )
 

@@ -48,7 +48,7 @@ Ergebnis: `output/processed` enthält für jede Quelle (Normal/Anomaly) die segm
 
 2. **`analyze_geometry_features(contours, hierarchy)`**  
    - liefert: Hauptkontur, Fläche, Konvexhülle, `edge_damage`, `edge_segments`, `num_windows`, `window_areas`, `has_center_hole`, `fragment_count`, `outer_count`.  
-   - Diese Daten treiben später die Rest-/Bruch-Hints sowie Symmetrie- und Kantenerkennung.
+   - Diese Daten treiben später die Rest-/Bruch-Hints sowie Fenster-Score und Kantenerkennung.
 
 3. **`detect_defects(image, spot_threshold)`**  
    - komplette Farbanalyse: Maskierung → Erosion (`EROSION_*`) → Black-Hat (`BLACKHAT_*`) → Schwellenwert & Rausch-Filter → Kennzahlen (`spot_area`, `texture_std`, `lab_std`, `dark_delta`, `median_intensity`, `is_defective`).  
@@ -62,7 +62,7 @@ Ergebnis: `output/processed` enthält für jede Quelle (Normal/Anomaly) die segm
 1. **Verzeichnis vorbereiten** (`sorted_data_dir` leeren, Klasse-Unterordner anlegen).  
 2. **Iteration** über `output/processed`: Geometrie- und Farbmerkmale pro Bild berechnen.  
 3. **Decision Levels** (siehe unten) bestimmen `target_class` + `reason`.  
-4. **Datei kopieren** → `output/sorted/<Klasse>/<Prefix optional>/<Name>`. Bei `Normal` wird standardmäßig `"{symmetry_score:03d}_"` vorangestellt.  
+4. **Datei kopieren** → `output/sorted/<Klasse>/<Prefix optional>/<Name>`. Bei `Normal` wird standardmäßig `"{window_size_variance_score:03d}_"` vorangestellt.  
 5. **Statistik** (`stats_counter`, `reason_counter`) speisen später die Ausgabe.
 
 ### 4.2 Decision Level 1 – Guards
@@ -82,8 +82,8 @@ Reihenfolge der Checks:
 1. **Rest** (`rest_strength ≥ 2`).  
 2. **Farbe** (`color_strength ≥ 2` oder `rest_strength ≤ 1`).  
 3. **Kantenbruch** (`edge_damage ≥ EDGE_DAMAGE_THRESHOLD` oder `edge_segments ≥ EDGE_MAX_SEGMENTS`) und `color_strength < 2`.  
-4. **Symmetrie** (`symmetry_score < BRUCH_SYMMETRY_THRESHOLD` → `Bruch`, sonst `Normal` mit Prefix).  
-Damit entsteht eine klare Priorisierung: klebrige Restfälle vorn, starke Farbe vor Kanten, Kanten vor normaler Symmetrie.
+4. **Fenster-Score** (`window_size_variance_score < BRUCH_WINDOW_VARIANCE_THRESHOLD` → `Bruch`, sonst `Normal` mit Prefix).  
+Damit entsteht eine klare Priorisierung: klebrige Restfälle vorn, starke Farbe vor Kanten, Kanten vor hohem Fenster-Score.
 
 ### 4.5 Weitere Helfer im Umfeld
 - `normalize_relative_path(path)` – vereinheitlicht Pfade (wichtig für Logging/Validierung).  
@@ -132,4 +132,4 @@ Damit entsteht eine klare Priorisierung: klebrige Restfälle vorn, starke Farbe 
 4. **Übersicht** (Schritt 5): Tabellen ausgeben.  
 5. **Validierung** (Schritt 6): Annotierte Wahrheiten prüfen, Fehlbilder sammeln.  
 
-Damit erfüllt der Code alle Vorgaben: Hintergrund entfernen, in vier Klassen einsortieren, Fehlbilder dokumentieren und Normalbilder nach Symmetrie prefixed abspeichern – rein heuristisch.
+Damit erfüllt der Code alle Vorgaben: Hintergrund entfernen, in vier Klassen einsortieren, Fehlbilder dokumentieren und Normalbilder nach dem Fenster-Score prefixed abspeichern – rein heuristisch.

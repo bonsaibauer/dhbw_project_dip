@@ -1,0 +1,10 @@
+{
+  "paths": {
+    "raw_image_directory": "data/Images",
+    "processed_image_directory": "output/processed",
+    "sorted_output_directory": "output/sorted",
+    "failed_validation_directory": "output/sorted/Falsch",
+    "annotation_file_path": "data/image_anno.csv",
+    "pipeline_csv_path": "output/image_data.csv"
+  }
+}

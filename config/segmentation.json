@@ -1,0 +1,21 @@
+{
+  "preprocessing": {
+    "preprocess_hsv_lower": [
+      35,
+      40,
+      30
+    ],
+    "preprocess_hsv_upper": [
+      85,
+      255,
+      255
+    ],
+    "minimum_contour_area": 30000,
+    "warp_frame_size": [
+      600,
+      400
+    ],
+    "target_width": 400,
+    "target_height": 400
+  }
+}

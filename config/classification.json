@@ -1,8 +1,8 @@
 {
   "label_priorities": {
-    "bruch": 1,
+    "bruch": 2,
     "rest": 3,
-    "farbfehler": 2,
+    "farbfehler": 1,
     "normal": 0
   },
   "label_class_map": {

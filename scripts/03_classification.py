@@ -78,7 +78,7 @@ OUTER_BREAK_MIN_RATIO_THRESHOLD = 0.5
 INNER_BREAK_MIN_WINDOWS = 6
 INNER_BREAK_DEVIATION_TOLERANCE = 0.12
 ANOMALY_INNER_BREAK_TOLERANCE = 0.04
-ANOMALY_COLOR_SPOT_LIMIT = 20
+ANOMALY_COLOR_SPOT_LIMIT = 60
 INNER_BREAK_DEVIATION_COUNT_THRESHOLD = 1
 
 
@@ -361,6 +361,10 @@ def bruch_decisions(features):
     if not features.get("pipeline_has_anomaly_flag"):
         return []
 
+    color_spot_area = features.get("color_spot_area", 0)
+    if color_spot_area > ANOMALY_COLOR_SPOT_LIMIT:
+        return []
+
     decisions = []
 
     window_areas = features.get("geometry_window_area_list") or []
@@ -380,13 +384,8 @@ def bruch_decisions(features):
         mean_area = float(np.mean(top_windows))
         if mean_area > 0:
             anomaly_flag = features.get("pipeline_has_anomaly_flag", False)
-            color_issue = features.get("color_issue_detected", False)
-            color_spot_area = features.get("color_spot_area", 0)
             inner_threshold = INNER_BREAK_DEVIATION_TOLERANCE
-            if (
-                anomaly_flag
-                and color_spot_area < ANOMALY_COLOR_SPOT_LIMIT
-            ):
+            if anomaly_flag:
                 inner_threshold = min(
                     inner_threshold, ANOMALY_INNER_BREAK_TOLERANCE
                 )

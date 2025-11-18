@@ -1,9 +1,9 @@
 {
   "label_priorities": {
-    "bruch": 0,
-    "rest": 1,
+    "bruch": 1,
+    "rest": 3,
     "farbfehler": 2,
-    "normal": 3
+    "normal": 0
   },
   "label_class_map": {
     "normal": "Normal",
@@ -205,6 +205,20 @@
           "value": 90,
           "weight": 1.0,
           "reason": "Window Size Variance: {geometry_window_size_variance_score:.1f}%"
+        },
+        {
+          "metric": "geometry_window_area_deviation_max",
+          "op": ">=",
+          "value": 0.15,
+          "weight": 1.0,
+          "reason": "Fensterabweichung: {geometry_window_area_deviation_max:.2f}"
+        },
+        {
+          "metric": "geometry_window_area_deviation_count",
+          "op": ">=",
+          "value": 1,
+          "weight": 0.5,
+          "reason": "Abw.-Fenster: {geometry_window_area_deviation_count}"
         }
       ]
     },
@@ -239,6 +253,20 @@
           "value": 1.4,
           "weight": 0.3,
           "reason": "Fensterverh.: {geometry_window_area_ratio:.2f}"
+        },
+        {
+          "metric": "geometry_outer_radius_min_ratio",
+          "op": "<=",
+          "value": 0.83,
+          "weight": 1.2,
+          "reason": "Min. Radiusanteil: {geometry_outer_radius_min_ratio:.2f}"
+        },
+        {
+          "metric": "geometry_outer_radius_low_fraction",
+          "op": ">=",
+          "value": 0.08,
+          "weight": 0.7,
+          "reason": "Kontur <75%: {geometry_outer_radius_low_fraction:.2f}"
         }
       ]
     },
@@ -266,6 +294,27 @@
           "value": 2.0,
           "weight": 1.0,
           "reason": "Fensterverh.: {geometry_window_area_ratio:.2f}"
+        },
+        {
+          "metric": "geometry_outer_radius_min_ratio",
+          "op": "<=",
+          "value": 0.80,
+          "weight": 1.5,
+          "reason": "Min. Radiusanteil: {geometry_outer_radius_min_ratio:.2f}"
+        },
+        {
+          "metric": "geometry_outer_radius_low_fraction",
+          "op": ">=",
+          "value": 0.06,
+          "weight": 0.7,
+          "reason": "Kontur <75%: {geometry_outer_radius_low_fraction:.2f}"
+        },
+        {
+          "metric": "geometry_window_area_deviation_max",
+          "op": ">=",
+          "value": 0.18,
+          "weight": 1.2,
+          "reason": "Fensterabweichung: {geometry_window_area_deviation_max:.2f}"
         }
       ]
     },

@@ -128,6 +128,11 @@ pipe_csv = path_map["pipeline_csv_path"]
 geo_cfg = load_geometry()
 spot_cfg = load_spot()
 
+OUTER_RADIUS_SMOOTH_WINDOW = 15
+OUTER_RADIUS_RATIO_THRESHOLD = 0.75
+WINDOW_DEVIATION_TOP_COUNT = 6
+WINDOW_DEVIATION_TOLERANCE = 0.15
+
 
 def show_progress(prefix, current, total, bar_len=30):
     if total <= 0:
@@ -367,6 +372,102 @@ def extract_contours(image):
     return cv2.findContours(thresh, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
 
 
+def outer_break_metrics(
+    contour, smooth_window=15, ratio_threshold=0.75
+):
+    result = {
+        "geometry_outer_radius_min_ratio": 1.0,
+        "geometry_outer_radius_low_fraction": 0.0,
+        "geometry_outer_radius_low_count": 0,
+        "geometry_outer_radius_point_count": 0,
+    }
+    if contour is None or len(contour) == 0:
+        return result
+
+    moments = cv2.moments(contour)
+    if moments["m00"] == 0:
+        return result
+
+    cx = int(moments["m10"] / moments["m00"])
+    cy = int(moments["m01"] / moments["m00"])
+    distances = []
+    for point in contour:
+        px, py = point[0]
+        distances.append(np.hypot(px - cx, py - cy))
+    if not distances:
+        return result
+
+    distances = np.array(distances, dtype=np.float32)
+    median_radius = float(np.median(distances))
+    if median_radius <= 0:
+        return result
+
+    point_count = len(distances)
+    result["geometry_outer_radius_point_count"] = point_count
+
+    if smooth_window > 1:
+        kernel = np.ones(int(smooth_window), dtype=np.float32)
+        kernel /= kernel.size
+        smoothed = np.convolve(distances, kernel, mode="same")
+    else:
+        smoothed = distances
+
+    min_ratio = float(np.min(smoothed)) / median_radius
+    threshold_value = median_radius * ratio_threshold
+    low_count = int(np.sum(smoothed < threshold_value))
+    low_fraction = (low_count / point_count) if point_count else 0.0
+
+    result["geometry_outer_radius_min_ratio"] = round(min_ratio, 4)
+    result["geometry_outer_radius_low_fraction"] = round(low_fraction, 4)
+    result["geometry_outer_radius_low_count"] = int(low_count)
+    return result
+
+
+def window_deviation_metrics(
+    window_areas, top_count=6, deviation_tolerance=0.25
+):
+    result = {
+        "geometry_window_top_mean_area": 0.0,
+        "geometry_window_area_deviation_max": 0.0,
+        "geometry_window_area_deviation_count": 0,
+    }
+    if not window_areas:
+        return result
+
+    valid_areas = [area for area in window_areas if area > 0]
+    if not valid_areas:
+        return result
+
+    top_target = max(1, int(top_count))
+    sorted_areas = sorted(valid_areas, reverse=True)
+    top_windows = sorted_areas[:top_target]
+    missing = max(0, top_target - len(top_windows))
+
+    if not top_windows:
+        result["geometry_window_area_deviation_max"] = 1.0
+        result["geometry_window_area_deviation_count"] = top_target
+        return result
+
+    mean_area = float(np.mean(top_windows))
+    result["geometry_window_top_mean_area"] = round(mean_area, 2)
+
+    if mean_area <= 0:
+        return result
+
+    deviations = [abs(area - mean_area) / mean_area for area in top_windows]
+    max_dev = max(deviations) if deviations else 0.0
+    result["geometry_window_area_deviation_max"] = round(max_dev, 4)
+    dev_count = sum(dev > deviation_tolerance for dev in deviations)
+    if missing > 0:
+        dev_count += missing
+        result["geometry_window_area_deviation_max"] = max(
+            result["geometry_window_area_deviation_max"], 1.0
+        )
+    result["geometry_window_area_deviation_count"] = int(dev_count)
+
+    return result
+
+
 def geometry_stats(contours, hierarchy, geo_cfg):
     """Zählt Fenster, Fragmente und liefert Geometriekennzahlen."""
     eps_fact = geo_cfg["polygon_epsilon_factor"]
@@ -447,6 +548,22 @@ def geometry_stats(contours, hierarchy, geo_cfg):
             stats["geometry_window_area_list"].pop(min_idx)
             stats["geometry_window_count"] = len(stats["geometry_window_area_list"])
 
+    stats.update(
+        outer_break_metrics(
+            stats.get("main_contour"),
+            OUTER_RADIUS_SMOOTH_WINDOW,
+            OUTER_RADIUS_RATIO_THRESHOLD,
+        )
+    )
+    stats.update(
+        window_deviation_metrics(
+            stats.get("geometry_window_area_list"),
+            WINDOW_DEVIATION_TOP_COUNT,
+            WINDOW_DEVIATION_TOLERANCE,
+        )
+    )
+    stats["main_contour"] = None
+
     return stats
 
 
@@ -465,6 +582,12 @@ CSV_FIELDS = [
     "geometry_fragment_count",
     "geometry_outer_contour_count",
     "geometry_window_area_list",
+    "geometry_outer_radius_min_ratio",
+    "geometry_outer_radius_low_fraction",
+    "geometry_outer_radius_low_count",
+    "geometry_outer_radius_point_count",
+    "geometry_window_area_deviation_max",
+    "geometry_window_area_deviation_count",
     "symmetry_score",
     "color_detection_flag",
     "color_spot_area",
@@ -521,6 +644,12 @@ def analyze_image(img_path, source_root, geo_cfg, spot_cfg):
         "geometry_window_area_list": json.dumps(
             geo.get("geometry_window_area_list", [])
         ),
+        "geometry_outer_radius_min_ratio": f"{geo.get('geometry_outer_radius_min_ratio', 0.0):.4f}",
+        "geometry_outer_radius_low_fraction": f"{geo.get('geometry_outer_radius_low_fraction', 0.0):.4f}",
+        "geometry_outer_radius_low_count": f"{geo.get('geometry_outer_radius_low_count', 0)}",
+        "geometry_outer_radius_point_count": f"{geo.get('geometry_outer_radius_point_count', 0)}",
+        "geometry_window_area_deviation_max": f"{geo.get('geometry_window_area_deviation_max', 0.0):.4f}",
+        "geometry_window_area_deviation_count": f"{geo.get('geometry_window_area_deviation_count', 0)}",
         "symmetry_score": f"{sym_score:.2f}",
         "color_detection_flag": bool_text(color_res["color_detection_flag"]),
         "color_spot_area": f"{color_res.get('color_spot_area', 0)}",

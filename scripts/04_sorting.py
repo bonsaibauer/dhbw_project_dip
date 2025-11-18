@@ -98,6 +98,38 @@ def write_rows(csv_path, headers, rows):
         writer.writerows(rows)
 
 
+def try_float(value):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def base_filename(row):
+    return row.get("filename") or os.path.basename(row.get("source_path", ""))
+
+
+def prefixed_name(row, base_name, target_class):
+    if target_class.lower() != "normal":
+        return base_name
+
+    score = try_float(row.get("geometry_window_symmetry_score"))
+    if score is None:
+        return base_name
+
+    return f"{score:06.2f}_{base_name}"
+
+
+def resolve_destination_name(row):
+    if row.get("destination_filename"):
+        return row["destination_filename"]
+
+    target_class = row.get("target_class") or ""
+    filename = base_filename(row)
+
+    return prefixed_name(row, filename, target_class)
+
+
 def clear_folder(folder):
     if not os.path.exists(folder):
         return
@@ -135,11 +167,8 @@ def sort_images(csv_path, sorted_dir, log_progress=True):
             class_counts[target_class] = 0
         class_counts[target_class] += 1
 
-        filename = (
-            row.get("destination_filename")
-            or row.get("filename")
-            or os.path.basename(row.get("source_path", ""))
-        )
+        filename = resolve_destination_name(row)
+        row["destination_filename"] = filename
         src_path = row.get("source_path", "")
         if not src_path or not os.path.exists(src_path):
             continue
@@ -165,7 +194,7 @@ def sort_images(csv_path, sorted_dir, log_progress=True):
             summary_rows.append([cls, str(amount), f"{share:.1f}"])
         render_table(summary_headers, summary_rows)
 
-    headers = ensure_cols(headers, ["sorted_path"])
+    headers = ensure_cols(headers, ["sorted_path", "destination_filename"])
     write_rows(csv_path, headers, rows)
 
 

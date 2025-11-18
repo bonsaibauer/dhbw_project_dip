@@ -325,14 +325,6 @@ def format_reason(decision):
     return f"{label_title}: {detail}"
 
 
-def build_name(filename, class_name, features):
-    if class_name == "Normal":
-        prefix = f"{features['geometry_window_symmetry_score']:06.2f}_"
-    else:
-        prefix = ""
-    return f"{prefix}{filename}"
-
-
 def classify_row(row, sym_sen):
     features = extract_metrics(row, sym_sen)
     decisions = eval_rules(features)
@@ -360,12 +352,12 @@ def classify_csv(csv_path, classifier_settings, sort_log):
         decision, features = classify_row(row, sym_sen)
         class_name = decision["class"]
         reason = format_reason(decision)
-        new_filename = build_name(filename, class_name, features)
+        symmetry_score = features.get("geometry_window_symmetry_score", 0.0)
 
         row["target_label"] = decision["label"]
         row["target_class"] = class_name
         row["reason"] = reason
-        row["destination_filename"] = new_filename
+        row["geometry_window_symmetry_score"] = f"{symmetry_score:.4f}"
 
         predictions.append(
             {
@@ -384,7 +376,12 @@ def classify_csv(csv_path, classifier_settings, sort_log):
     if sort_log and total_files > 0:
         print()
 
-    required_columns = ["target_label", "target_class", "reason", "destination_filename"]
+    required_columns = [
+        "target_label",
+        "target_class",
+        "reason",
+        "geometry_window_symmetry_score",
+    ]
     final_fields = ensure_cols(fieldnames, required_columns)
     write_rows(csv_path, final_fields, rows)
 

@@ -113,7 +113,7 @@ def prefixed_name(row, base_name, target_class):
     if target_class.lower() != "normal":
         return base_name
 
-    score = try_float(row.get("geometry_window_size_variance_score"))
+    score = try_float(row.get("symmetry_score"))
     if score is None:
         return base_name
 

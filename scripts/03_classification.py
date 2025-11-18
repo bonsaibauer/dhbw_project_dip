@@ -184,6 +184,7 @@ def extract_metrics(row):
     lab_std = parse_float(row.get("color_lab_stddev"))
     dark_delta = parse_float(row.get("color_dark_delta"))
     color_flag = parse_flag(row.get("color_detection_flag"))
+    symmetry_score = parse_float(row.get("symmetry_score"))
 
     features = {
         "geometry_window_area_list": window_areas,
@@ -212,6 +213,7 @@ def extract_metrics(row):
         "geometry_has_primary_object": parse_flag(
             row.get("geometry_has_primary_object")
         ),
+        "symmetry_score": symmetry_score,
         "color_spot_area": spot_area,
         "color_texture_stddev": texture_std,
         "color_lab_stddev": lab_std,
@@ -377,6 +379,7 @@ def classify_csv(csv_path, sort_log):
         "target_class",
         "reason",
         "geometry_window_size_variance_score",
+        "symmetry_score",
     ]
     final_fields = ensure_cols(fieldnames, required_columns)
     write_rows(csv_path, final_fields, rows)

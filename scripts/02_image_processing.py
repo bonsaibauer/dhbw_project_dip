@@ -333,6 +333,34 @@ def detect_spots(image, settings, debug=False):
     return result
 
 
+def symmetry_score(image):
+    """Berechnet einen 6-fachen Rotationssymmetrie-Score (0-100%)."""
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    _, mask = cv2.threshold(gray, 10, 255, cv2.THRESH_BINARY)
+    total_pixels = cv2.countNonZero(mask)
+    if total_pixels == 0:
+        return 0.0
+
+    moments = cv2.moments(mask)
+    if moments["m00"] == 0:
+        return 0.0
+
+    cx = int(moments["m10"] / moments["m00"])
+    cy = int(moments["m01"] / moments["m00"])
+    height, width = mask.shape[:2]
+    core_mask = mask.copy()
+
+    for angle in range(60, 360, 60):
+        rot_mat = cv2.getRotationMatrix2D((cx, cy), angle, 1.0)
+        rotated = cv2.warpAffine(mask, rot_mat, (width, height))
+        core_mask = cv2.bitwise_and(core_mask, rotated)
+
+    asymmetric = cv2.subtract(mask, core_mask)
+    asymmetric_pixels = cv2.countNonZero(asymmetric)
+    symmetry_ratio = 1.0 - (asymmetric_pixels / total_pixels)
+    return max(0.0, min(100.0, round(symmetry_ratio * 100, 2)))
+
+
 def extract_contours(image):
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     _, thresh = cv2.threshold(gray, 10, 255, cv2.THRESH_BINARY)
@@ -437,6 +465,7 @@ CSV_FIELDS = [
     "geometry_fragment_count",
     "geometry_outer_contour_count",
     "geometry_window_area_list",
+    "symmetry_score",
     "color_detection_flag",
     "color_spot_area",
     "color_texture_stddev",
@@ -456,6 +485,8 @@ def analyze_image(img_path, source_root, geo_cfg, spot_cfg):
 
     contours, hierarchy = extract_contours(image)
     geo = geometry_stats(contours, hierarchy, geo_cfg)
+
+    sym_score = symmetry_score(image)
 
     if is_anomaly:
         color_res = detect_spots(image, spot_cfg)
@@ -490,6 +521,7 @@ def analyze_image(img_path, source_root, geo_cfg, spot_cfg):
         "geometry_window_area_list": json.dumps(
             geo.get("geometry_window_area_list", [])
         ),
+        "symmetry_score": f"{sym_score:.2f}",
         "color_detection_flag": bool_text(color_res["color_detection_flag"]),
         "color_spot_area": f"{color_res.get('color_spot_area', 0)}",
         "color_texture_stddev": f"{color_res.get('color_texture_stddev', 0.0)}",

@@ -62,7 +62,7 @@ Ergebnis: `output/processed` enthält für jede Quelle (Normal/Anomaly) die segm
 1. **Verzeichnis vorbereiten** (`sorted_data_dir` leeren, Klasse-Unterordner anlegen).  
 2. **Iteration** über `output/processed`: Geometrie- und Farbmerkmale pro Bild berechnen.  
 3. **Decision Levels** (siehe unten) bestimmen `target_class` + `reason`.  
-4. **Datei kopieren** → `output/sorted/<Klasse>/<Prefix optional>/<Name>`. Bei `Normal` wird standardmäßig `"{window_size_variance_score:03d}_"` vorangestellt.  
+4. **Datei kopieren** → `output/sorted/<Klasse>/<Prefix optional>/<Name>`. Bei `Normal` wird standardmäßig `"{symmetry_score:03d}_"` vorangestellt.  
 5. **Statistik** (`stats_counter`, `reason_counter`) speisen später die Ausgabe.
 
 ### 4.2 Decision Level 1 – Guards
@@ -132,4 +132,4 @@ Damit entsteht eine klare Priorisierung: klebrige Restfälle vorn, starke Farbe 
 4. **Übersicht** (Schritt 5): Tabellen ausgeben.  
 5. **Validierung** (Schritt 6): Annotierte Wahrheiten prüfen, Fehlbilder sammeln.  
 
-Damit erfüllt der Code alle Vorgaben: Hintergrund entfernen, in vier Klassen einsortieren, Fehlbilder dokumentieren und Normalbilder nach dem Fenster-Score prefixed abspeichern – rein heuristisch.
+Damit erfüllt der Code alle Vorgaben: Hintergrund entfernen, in vier Klassen einsortieren, Fehlbilder dokumentieren und Normalbilder nach dem Symmetry-Score prefixed abspeichern - rein heuristisch.

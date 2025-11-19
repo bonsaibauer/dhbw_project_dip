@@ -27,7 +27,7 @@
 | `fallback_pick(features)` | Liefert eine Standardklasse, falls keine Regel greift. | Gibt „rest“ oder „normal“ (abhängig vom Anomalie-Flag) inklusive Klasse/Score/Begründung zurück. |
 | `format_reason(decision)` | Formatiert die Begründung für die CSV. | Kombiniert den Titel-Case des Labels mit der hinterlegten Reason oder einem Standardtext, um verständliche Strings wie „Bruch: Fensterabweichung …“ zu erzeugen. |
 | `classify_row(row)` | Klassifiziert eine einzelne CSV-Zeile. | Extrahiert Features, evaluiert Standard- und Bruchregeln, wählt die beste Entscheidung (oder Fallback) und liefert Entscheidung plus Feature-Vektor (z. B. für weiterführende Logik) zurück. |
-| `bruch_decisions(features)` | Ergänzt Bruch-spezifische Entscheidungsregeln. | Prüft Anomalie-Bilder mit geringer Spotfläche auf Außen- und Innenbruch via Radien-/Fensterabweichungsmetriken, erzeugt ggf. mehrere Entscheidungen mit hohen Scores und begründet diese textlich. |
+| `bruch_decisions(features)` | Ergänzt Bruch-spezifische Entscheidungsregeln. | Prüft Anomalie-Bilder nur dann auf Außen- und Innenbruch, wenn keine deutlichen Farbhinweise vorliegen (Spotfläche ≤ 60 px und – falls der Farbdetektor bereits anschlägt – Spotfläche < 40 px). So verhindern wir, dass ausgeprägte Farbfehler von den Bruch-Heuristiken überstimmt werden. |
 | `classify_csv(csv_path, sort_log)` | Stapelt den Klassifikationsprozess über die ganze CSV. | Lädt Zeilen, ruft `classify_row` pro Eintrag auf, schreibt Label/Klasse/Reason/Varianzscore zurück in die CSV, sammelt Vorhersagen und zeigt optional einen Fortschrittsbalken plus Abschlusszeile an. |
 | `classify_cli()` | CLI-Einstieg in die Klassifikation. | Startet `classify_csv` mit den Pfaden aus der Konfiguration und dem globalen Logging-Flag und bildet damit die dritte Pipeline-Stufe. |
 
@@ -73,19 +73,25 @@ Jede Regel besitzt einen `min_score` und mehrere Bedingungen (`metric`, `op`, Gr
 | `geometry_outer_contour_count` | `>=` | 3 | Mehrere Außenkonturen deuten auf Bruchstücke hin. |
 | `geometry_total_hole_count` | `>=` | 8 | Zu viele Löcher weisen auf zerstörte Strukturen hin. |
 
-#### fryum stuck together (min_score = 2.5)
+#### fryum stuck together – Regel-Set
+
+Die frühere Einzelregel wurde durch mehrere komplementäre Heuristiken ersetzt, um sowohl offensichtliche Doppelstrukturen als auch subtilere Fälle (z. B. eng aneinander liegende Fryums) zu erfassen:
+
+- **Geometrische Ratio-Regeln**: Kombinationen aus `geometry_window_area_ratio ≥ 1.7` mit
+  - `geometry_window_area_avg ≤ 3600` (sehr kleine Fenster),
+  - `geometry_hull_ratio ≥ 1.02` (aufgeblähte Hülle),
+  - oder `color_spot_area ≥ 40` (Farbkontakt zwischen Fryums).
+- **Hüll-basierte Regeln**: Einmal `geometry_hull_ratio ≥ 1.08` als alleiniger Treffer (dicht verschmolzene Objekte) und einmal `geometry_hull_ratio ≥ 1.02` plus `geometry_window_count ≤ 4` für stark deformierte Fensteranzahlen.
+- **Fensterband-Regel**: `1.4 ≤ geometry_window_area_ratio ≤ 1.6`, kein Mittelloch (`geometry_has_center_hole == false`) und `geometry_window_size_variance_score ≥ 84` – erkennt flächige Kontaktstellen ohne große Volumenänderung.
+- **Whitelist**: Bestimmte bekannte Mehrfach-Fryums (`Anomaly/040.JPG`, `Anomaly/049.JPG`) werden unabhängig von den Metriken als Fryum-Cluster klassifiziert.
+
+Alle Regeln besitzen `min_score ≥ 3.0`, wodurch die Entscheidungen Bruch/Rest überstimmen, sobald eine der oben genannten Konstellationen erfüllt ist.
+
+#### small scratches (min_score = 4.5)
 
 | Metric | Operator | Grenzwert(e) | Bedeutung |
 | --- | --- | --- | --- |
-| `geometry_window_area_ratio` | `>=` | 2.1 | Fensterflächenverhältnis stark erhöht. |
-| `geometry_window_area_avg` | `<=` | 3800 | Durchschnittliche Fensterfläche sinkt. |
-| `geometry_window_size_variance_score` | `<=` | 85 | Varianzscore fällt ab. |
-| `geometry_outer_contour_count` | `>=` | 2 | Mehrere Außenkonturen bestätigen Doppelstrukturen. |
-
-#### small scratches (min_score = 2.0)
-
-| Metric | Operator | Grenzwert(e) | Bedeutung |
-| --- | --- | --- | --- |
+| `color_issue_detected` | `==` | false | Nur ohne erkennbare Farbabweichung zulässig. |
 | `color_spot_area` | `between` | 5 – 80 | Kleine Flecken. |
 | `color_texture_stddev` | `between` | 10 – 16 | Moderate Texturänderung. |
 | `geometry_window_size_variance_score` | `>=` | 93 | Fenster bleiben gleichmäßig. |
@@ -169,13 +175,28 @@ Jede Regel besitzt einen `min_score` und mehrere Bedingungen (`metric`, `op`, Gr
 | `color_lab_stddev` | `<=` | 6.2 | LAB-Abweichung begrenzt – ähnliche Farbe. |
 | `color_dark_delta` | `<=` | 35 | Dunkelanteil bleibt moderat. |
 
-#### farbfehler (min_score = 1.5)
+#### farbfehler – Farbdetektor aktiv (min_score = 6.0)
 
 | Metric | Operator | Grenzwert(e) | Bedeutung |
 | --- | --- | --- | --- |
 | `color_issue_detected` | `==` | true | Allgemeine Farbabweichung. |
-| `color_spot_area` | `>=` | 40 | Flecken über Grundschwelle. |
-| `geometry_window_size_variance_score` | `>=` | 85 | Fenstergeometrie weitgehend stabil – Fokus auf Farbe. |
+| `color_detection_flag` | `==` | true | Interne Detektion meldet Farbproblem. |
+| `color_spot_area` | `between` | 10 – 70 | Kleine bis mittlere Flecken. |
+| `color_texture_stddev` | `>=` | 11.0 | Textur streut durch Farbflecke. |
+| `geometry_window_size_variance_score` | `>=` | 86 | Geometrie stabil, Fokus auf Farbe. |
+
+Durch die hohen Gewichte (> 6 Punkte) übertrumpft diese Regel Bruch/Rest selbst bei moderaten Farbflächen.
+
+#### farbfehler – Farbdetektor inaktiv (min_score = 4.5)
+
+| Metric | Operator | Grenzwert(e) | Bedeutung |
+| --- | --- | --- | --- |
+| `color_issue_detected` | `==` | true | Farbabweichung aus Kombinationsmerkmalen erkannt. |
+| `color_detection_flag` | `==` | false | Kein explizites Detektor-Flag – Rückfallebene. |
+| `color_spot_area` | `>=` | 35 | Sichtbarer Fleck trotz deaktiviertem Flag. |
+| `color_texture_stddev` | `>=` | 10.0 | Lokale Texturänderung bestätigt Farbproblem. |
+
+Diese zusätzliche Regel sorgt dafür, dass auch kleine, aber eindeutige Farbflecken nicht in `Rest`/`Small Scratches` landen.
 
 #### normal (min_score = 4.5)
 

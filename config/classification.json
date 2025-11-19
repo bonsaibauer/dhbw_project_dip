@@ -53,6 +53,13 @@
       "min_score": 2.0,
       "conditions": [
         {
+          "metric": "color_issue_detected",
+          "op": "==",
+          "value": false,
+          "weight": 1.0,
+          "reason": "Keine Farbabweichung"
+        },
+        {
           "metric": "color_spot_area",
           "op": "between",
           "min": 5,
@@ -422,6 +429,48 @@
           "metric": "geometry_window_size_variance_score",
           "op": ">=",
           "value": 85,
+          "weight": 0.5,
+          "reason": "Window Size Variance: {geometry_window_size_variance_score:.1f}%"
+        }
+      ]
+    },
+    {
+      "label": "farbfehler",
+      "min_score": 2.5,
+      "conditions": [
+        {
+          "metric": "color_issue_detected",
+          "op": "==",
+          "value": true,
+          "weight": 1.2,
+          "reason": "Farbabweichung erkannt"
+        },
+        {
+          "metric": "color_detection_flag",
+          "op": "==",
+          "value": true,
+          "weight": 1.0,
+          "reason": "Farbdetektor aktiv"
+        },
+        {
+          "metric": "color_spot_area",
+          "op": "between",
+          "min": 10,
+          "max": 70,
+          "weight": 1.0,
+          "reason": "Fleckfläche: {color_spot_area}px"
+        },
+        {
+          "metric": "color_texture_stddev",
+          "op": ">=",
+          "value": 11.0,
+          "weight": 0.8,
+          "reason": "Textur: {color_texture_stddev:.1f}"
+        },
+        {
+          "metric": "geometry_window_size_variance_score",
+          "op": ">=",
+          "value": 86,
           "weight": 0.5,
           "reason": "Window Size Variance: {geometry_window_size_variance_score:.1f}%"
         }

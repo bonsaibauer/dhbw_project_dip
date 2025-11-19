@@ -245,6 +245,7 @@ def extract_metrics(row):
         "color_lab_stddev": lab_std,
         "color_dark_delta": dark_delta,
         "color_detection_flag": color_flag,
+        "relative_path": row.get("relative_path", ""),
     }
 
     color_threshold = 40

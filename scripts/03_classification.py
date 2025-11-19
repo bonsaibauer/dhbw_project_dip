@@ -80,6 +80,7 @@ INNER_BREAK_DEVIATION_TOLERANCE = 0.12
 ANOMALY_INNER_BREAK_TOLERANCE = 0.04
 ANOMALY_COLOR_SPOT_LIMIT = 60
 INNER_BREAK_DEVIATION_COUNT_THRESHOLD = 1
+COLOR_BREAK_SUPPRESSION_AREA = 40
 
 
 # ---------------------------------------------------------------------------
@@ -245,6 +246,7 @@ def extract_metrics(row):
         "color_lab_stddev": lab_std,
         "color_dark_delta": dark_delta,
         "color_detection_flag": color_flag,
+        "relative_path": row.get("relative_path", ""),
     }
 
     color_threshold = 40
@@ -363,6 +365,12 @@ def bruch_decisions(features):
 
     color_spot_area = features.get("color_spot_area", 0)
     if color_spot_area > ANOMALY_COLOR_SPOT_LIMIT:
+        return []
+
+    if (
+        features.get("color_issue_detected")
+        and color_spot_area >= COLOR_BREAK_SUPPRESSION_AREA
+    ):
         return []
 
     decisions = []

@@ -36,10 +36,6 @@ def load_paths():
         for key, value in load_path_config().get("paths", {}).items()
     }
 
-
-SORT_LOG_ENABLED = True
-
-
 def render_table(headers, rows, indent="  "):
     """Gibt eine Tabelle mit fester Spaltenbreite aus."""
     widths = [len(header) for header in headers]
@@ -59,7 +55,7 @@ def render_table(headers, rows, indent="  "):
 path_map = load_paths()
 pipe_csv = path_map["pipeline_csv_path"]
 sorted_dir = path_map["sorted_output_directory"]
-sort_flag = SORT_LOG_ENABLED
+sort_flag = True
 
 
 def show_progress(prefix, current, total, bar_len=30):
@@ -121,9 +117,6 @@ def prefixed_name(row, base_name, target_class):
 
 
 def resolve_destination_name(row):
-    if row.get("destination_filename"):
-        return row["destination_filename"]
-
     target_class = row.get("target_class") or ""
     filename = base_filename(row)
 

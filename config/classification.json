@@ -29,21 +29,18 @@
           "metric": "geometry_fragment_count",
           "op": ">=",
           "value": 1,
-          "weight": 3.0,
           "reason": "Fragmente: {geometry_fragment_count}"
         },
         {
           "metric": "geometry_outer_contour_count",
           "op": ">=",
           "value": 3,
-          "weight": 2.0,
           "reason": "Mehrfachobj.: {geometry_outer_contour_count}"
         },
         {
           "metric": "geometry_total_hole_count",
           "op": ">=",
           "value": 8,
-          "weight": 1.0,
           "reason": "Hohlräume: {geometry_total_hole_count}"
         }
       ]
@@ -56,28 +53,24 @@
           "metric": "geometry_window_area_ratio",
           "op": ">=",
           "value": 2.1,
-          "weight": 2.5,
           "reason": "Fensterverh.: {geometry_window_area_ratio:.2f}"
         },
         {
           "metric": "geometry_window_area_avg",
           "op": "<=",
           "value": 3800,
-          "weight": 1.0,
           "reason": "Fensterfläche: {geometry_window_area_avg:.0f}"
         },
         {
           "metric": "geometry_window_size_variance_score",
           "op": "<=",
           "value": 85,
-          "weight": 1.0,
           "reason": "Window Size Variance: {geometry_window_size_variance_score:.1f}%"
         },
         {
           "metric": "geometry_outer_contour_count",
           "op": ">=",
           "value": 2,
-          "weight": 0.5,
           "reason": "Mehrfachobj.: {geometry_outer_contour_count}"
         }
       ]
@@ -91,7 +84,6 @@
           "op": "between",
           "min": 5,
           "max": 80,
-          "weight": 1.5,
           "reason": "Fleckfläche: {color_spot_area}px"
         },
         {
@@ -99,21 +91,18 @@
           "op": "between",
           "min": 10,
           "max": 16,
-          "weight": 1.0,
           "reason": "Textur: {color_texture_stddev:.1f}"
         },
         {
           "metric": "geometry_window_size_variance_score",
           "op": ">=",
           "value": 93,
-          "weight": 0.8,
           "reason": "Window Size Variance: {geometry_window_size_variance_score:.1f}%"
         },
         {
           "metric": "geometry_window_area_ratio",
           "op": "<=",
           "value": 1.3,
-          "weight": 0.7,
           "reason": "Fensterverh.: {geometry_window_area_ratio:.2f}"
         }
       ]
@@ -126,7 +115,6 @@
           "metric": "pipeline_has_anomaly_flag",
           "op": "==",
           "value": true,
-          "weight": 1.0,
           "reason": "Anomalie"
         },
         {
@@ -134,7 +122,6 @@
           "op": "between",
           "min": 1.4,
           "max": 2.2,
-          "weight": 1.0,
           "reason": "Fensterverh.: {geometry_window_area_ratio:.2f}"
         },
         {
@@ -142,7 +129,6 @@
           "op": "between",
           "min": 82,
           "max": 90,
-          "weight": 0.7,
           "reason": "Window Size Variance: {geometry_window_size_variance_score:.1f}%"
         }
       ]
@@ -155,28 +141,24 @@
           "metric": "geometry_has_primary_object",
           "op": "==",
           "value": false,
-          "weight": 3.0,
           "reason": "Kein Objekt gefunden"
         },
         {
           "metric": "geometry_total_hole_count",
           "op": "!=",
           "value": 7,
-          "weight": 1.0,
           "reason": "Hohlräume: {geometry_total_hole_count}"
         },
         {
           "metric": "geometry_window_size_variance_score",
           "op": "<=",
           "value": 82,
-          "weight": 1.0,
           "reason": "Window Size Variance: {geometry_window_size_variance_score:.1f}%"
         },
         {
           "metric": "geometry_window_area_ratio",
           "op": ">=",
           "value": 2.0,
-          "weight": 0.8,
           "reason": "Fensterverh.: {geometry_window_area_ratio:.2f}"
         }
       ]
@@ -189,35 +171,30 @@
           "metric": "geometry_total_hole_count",
           "op": "<=",
           "value": 6,
-          "weight": 2.0,
           "reason": "Hohlräume: {geometry_total_hole_count}"
         },
         {
           "metric": "geometry_window_area_ratio",
           "op": ">=",
           "value": 1.5,
-          "weight": 1.0,
           "reason": "Fensterverh.: {geometry_window_area_ratio:.2f}"
         },
         {
           "metric": "geometry_window_size_variance_score",
           "op": "<=",
           "value": 90,
-          "weight": 1.0,
           "reason": "Window Size Variance: {geometry_window_size_variance_score:.1f}%"
         },
         {
           "metric": "geometry_window_area_deviation_max",
           "op": ">=",
           "value": 0.15,
-          "weight": 1.0,
           "reason": "Fensterabweichung: {geometry_window_area_deviation_max:.2f}"
         },
         {
           "metric": "geometry_window_area_deviation_count",
           "op": ">=",
           "value": 1,
-          "weight": 0.5,
           "reason": "Abw.-Fenster: {geometry_window_area_deviation_count}"
         }
       ]
@@ -230,42 +207,36 @@
           "metric": "geometry_edge_segment_count",
           "op": "<=",
           "value": 6,
-          "weight": 1.2,
           "reason": "Kantensegmente: {geometry_edge_segment_count}"
         },
         {
           "metric": "geometry_edge_damage_ratio",
           "op": "<=",
           "value": 0.92,
-          "weight": 1.0,
           "reason": "Kantenschaden: {geometry_edge_damage_ratio:.2f}"
         },
         {
           "metric": "geometry_window_size_variance_score",
           "op": ">=",
           "value": 90,
-          "weight": 0.5,
           "reason": "Window Size Variance: {geometry_window_size_variance_score:.1f}%"
         },
         {
           "metric": "geometry_window_area_ratio",
           "op": "<=",
           "value": 1.4,
-          "weight": 0.3,
           "reason": "Fensterverh.: {geometry_window_area_ratio:.2f}"
         },
         {
           "metric": "geometry_outer_radius_min_ratio",
           "op": "<=",
           "value": 0.83,
-          "weight": 1.2,
           "reason": "Min. Radiusanteil: {geometry_outer_radius_min_ratio:.2f}"
         },
         {
           "metric": "geometry_outer_radius_low_fraction",
           "op": ">=",
           "value": 0.08,
-          "weight": 0.7,
           "reason": "Kontur <75%: {geometry_outer_radius_low_fraction:.2f}"
         }
       ]
@@ -278,42 +249,36 @@
           "metric": "geometry_window_size_variance_score",
           "op": "<=",
           "value": 82,
-          "weight": 2.0,
           "reason": "Window Size Variance: {geometry_window_size_variance_score:.1f}%"
         },
         {
           "metric": "geometry_total_hole_count",
           "op": "<=",
           "value": 6,
-          "weight": 1.0,
           "reason": "Hohlräume: {geometry_total_hole_count}"
         },
         {
           "metric": "geometry_window_area_ratio",
           "op": ">=",
           "value": 2.0,
-          "weight": 1.0,
           "reason": "Fensterverh.: {geometry_window_area_ratio:.2f}"
         },
         {
           "metric": "geometry_outer_radius_min_ratio",
           "op": "<=",
-          "value": 0.80,
-          "weight": 1.5,
+          "value": 0.8,
           "reason": "Min. Radiusanteil: {geometry_outer_radius_min_ratio:.2f}"
         },
         {
           "metric": "geometry_outer_radius_low_fraction",
           "op": ">=",
           "value": 0.06,
-          "weight": 0.7,
           "reason": "Kontur <75%: {geometry_outer_radius_low_fraction:.2f}"
         },
         {
           "metric": "geometry_window_area_deviation_max",
           "op": ">=",
           "value": 0.18,
-          "weight": 1.2,
           "reason": "Fensterabweichung: {geometry_window_area_deviation_max:.2f}"
         }
       ]
@@ -326,28 +291,24 @@
           "metric": "color_issue_detected",
           "op": "==",
           "value": true,
-          "weight": 0.5,
           "reason": "Farbabweichung erkannt"
         },
         {
           "metric": "color_spot_area",
           "op": ">=",
           "value": 350,
-          "weight": 1.5,
           "reason": "Fleckfläche: {color_spot_area}px"
         },
         {
           "metric": "color_dark_delta",
           "op": ">=",
           "value": 32,
-          "weight": 1.2,
           "reason": "Dunkelanteil: {color_dark_delta:.1f}"
         },
         {
           "metric": "color_texture_stddev",
           "op": ">=",
           "value": 20,
-          "weight": 0.5,
           "reason": "Textur: {color_texture_stddev:.1f}"
         }
       ]
@@ -360,35 +321,30 @@
           "metric": "color_issue_detected",
           "op": "==",
           "value": true,
-          "weight": 0.5,
           "reason": "Farbabweichung erkannt"
         },
         {
           "metric": "color_spot_area",
           "op": ">=",
           "value": 80,
-          "weight": 1.2,
           "reason": "Fleckfläche: {color_spot_area}px"
         },
         {
           "metric": "color_lab_stddev",
           "op": ">=",
           "value": 5.2,
-          "weight": 1.0,
           "reason": "LAB-Std.: {color_lab_stddev:.2f}"
         },
         {
           "metric": "color_dark_delta",
           "op": "<=",
           "value": 34,
-          "weight": 0.5,
           "reason": "Dunkelanteil: {color_dark_delta:.1f}"
         },
         {
           "metric": "color_texture_stddev",
           "op": "<=",
           "value": 18,
-          "weight": 0.5,
           "reason": "Textur: {color_texture_stddev:.1f}"
         }
       ]
@@ -401,35 +357,30 @@
           "metric": "color_issue_detected",
           "op": "==",
           "value": true,
-          "weight": 0.5,
           "reason": "Farbabweichung erkannt"
         },
         {
           "metric": "color_spot_area",
           "op": ">=",
           "value": 60,
-          "weight": 1.0,
           "reason": "Fleckfläche: {color_spot_area}px"
         },
         {
           "metric": "color_texture_stddev",
           "op": ">=",
           "value": 14,
-          "weight": 1.0,
           "reason": "Textur: {color_texture_stddev:.1f}"
         },
         {
           "metric": "color_lab_stddev",
           "op": "<=",
           "value": 6.2,
-          "weight": 0.5,
           "reason": "LAB-Std.: {color_lab_stddev:.2f}"
         },
         {
           "metric": "color_dark_delta",
           "op": "<=",
           "value": 35,
-          "weight": 0.5,
           "reason": "Dunkelanteil: {color_dark_delta:.1f}"
         }
       ]
@@ -442,21 +393,18 @@
           "metric": "color_issue_detected",
           "op": "==",
           "value": true,
-          "weight": 1.0,
           "reason": "Farbabweichung erkannt"
         },
         {
           "metric": "color_spot_area",
           "op": ">=",
           "value": 40,
-          "weight": 0.7,
           "reason": "Fleckfläche: {color_spot_area}px"
         },
         {
           "metric": "geometry_window_size_variance_score",
           "op": ">=",
           "value": 85,
-          "weight": 0.5,
           "reason": "Window Size Variance: {geometry_window_size_variance_score:.1f}%"
         }
       ]
@@ -469,42 +417,36 @@
           "metric": "pipeline_has_anomaly_flag",
           "op": "==",
           "value": false,
-          "weight": 1.5,
           "reason": "Kein Anomalie-Marker"
         },
         {
           "metric": "color_issue_detected",
           "op": "==",
           "value": false,
-          "weight": 1.5,
           "reason": "Keine Farbabweichung"
         },
         {
           "metric": "geometry_fragment_count",
           "op": "==",
           "value": 0,
-          "weight": 1.0,
           "reason": "Keine Fragmente"
         },
         {
           "metric": "geometry_total_hole_count",
           "op": "==",
           "value": 7,
-          "weight": 0.8,
           "reason": "Hohlräume: {geometry_total_hole_count}"
         },
         {
           "metric": "geometry_window_size_variance_score",
           "op": ">=",
           "value": 90,
-          "weight": 0.8,
           "reason": "Window Size Variance: {geometry_window_size_variance_score:.1f}%"
         },
         {
           "metric": "geometry_window_area_ratio",
           "op": "<=",
           "value": 1.6,
-          "weight": 0.5,
           "reason": "Fensterverh.: {geometry_window_area_ratio:.2f}"
         }
       ]

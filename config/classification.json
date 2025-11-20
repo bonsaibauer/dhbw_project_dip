@@ -1,465 +1,84 @@
 {
   "label_priorities": {
-    "bruch": 2,
-    "rest": 3,
-    "farbfehler": 1,
-    "normal": 0
+    "farbfehler": 0,
+    "bruch": 1,
+    "rest": 2,
+    "normal": 3
   },
   "label_class_map": {
     "normal": "Normal",
+    "farbfehler": "Farbfehler",
     "different colour spot": "Farbfehler",
     "similar colour spot": "Farbfehler",
     "burnt": "Farbfehler",
-    "farbfehler": "Farbfehler",
+    "bruch": "Bruch",
     "middle breakage": "Bruch",
     "corner or edge breakage": "Bruch",
-    "bruch": "Bruch",
-    "fryum stuck together": "Rest",
+    "rest": "Rest",
     "small scratches": "Rest",
-    "other": "Rest",
+    "fryum stuck together": "Rest",
     "fragment": "Rest",
-    "rest": "Rest"
+    "other": "Rest"
   },
   "defaults": {
     "sort_log_enabled": true,
-    "window_size_variance_sensitivity": 1.1,
-    "color_issue_thresholds": {
-      "spot_area": 40,
-      "texture_stddev": 12,
-      "lab_stddev": 5,
-      "dark_delta": 18
-    }
+    "window_size_variance_sensitivity": 1.1
   },
   "label_rules": [
     {
-      "label": "fragment",
-      "min_score": 3.0,
-      "conditions": [
-        {
-          "metric": "geometry_fragment_count",
-          "op": ">=",
-          "value": 1,
-          "reason": "Fragmente: {geometry_fragment_count}"
-        },
-        {
-          "metric": "geometry_outer_contour_count",
-          "op": ">=",
-          "value": 3,
-          "reason": "Mehrfachobj.: {geometry_outer_contour_count}"
-        },
-        {
-          "metric": "geometry_total_hole_count",
-          "op": ">=",
-          "value": 8,
-          "reason": "Hohlräume: {geometry_total_hole_count}"
-        }
-      ]
-    },
-    {
-      "label": "fryum stuck together",
-      "min_score": 2.5,
-      "conditions": [
-        {
-          "metric": "geometry_window_area_ratio",
-          "op": ">=",
-          "value": 2.1,
-          "reason": "Fensterverh.: {geometry_window_area_ratio:.2f}"
-        },
-        {
-          "metric": "geometry_window_area_avg",
-          "op": "<=",
-          "value": 3800,
-          "reason": "Fensterfläche: {geometry_window_area_avg:.0f}"
-        },
-        {
-          "metric": "geometry_window_size_variance_score",
-          "op": "<=",
-          "value": 85,
-          "reason": "Window Size Variance: {geometry_window_size_variance_score:.1f}%"
-        },
-        {
-          "metric": "geometry_outer_contour_count",
-          "op": ">=",
-          "value": 2,
-          "reason": "Mehrfachobj.: {geometry_outer_contour_count}"
-        }
-      ]
-    },
-    {
-      "label": "small scratches",
-      "min_score": 2.0,
-      "conditions": [
-        {
-          "metric": "color_spot_area",
-          "op": "between",
-          "min": 5,
-          "max": 80,
-          "reason": "Fleckfläche: {color_spot_area}px"
-        },
-        {
-          "metric": "color_texture_stddev",
-          "op": "between",
-          "min": 10,
-          "max": 16,
-          "reason": "Textur: {color_texture_stddev:.1f}"
-        },
-        {
-          "metric": "geometry_window_size_variance_score",
-          "op": ">=",
-          "value": 93,
-          "reason": "Window Size Variance: {geometry_window_size_variance_score:.1f}%"
-        },
-        {
-          "metric": "geometry_window_area_ratio",
-          "op": "<=",
-          "value": 1.3,
-          "reason": "Fensterverh.: {geometry_window_area_ratio:.2f}"
-        }
-      ]
-    },
-    {
-      "label": "other",
-      "min_score": 2.0,
-      "conditions": [
-        {
-          "metric": "pipeline_has_anomaly_flag",
-          "op": "==",
-          "value": true,
-          "reason": "Anomalie"
-        },
-        {
-          "metric": "geometry_window_area_ratio",
-          "op": "between",
-          "min": 1.4,
-          "max": 2.2,
-          "reason": "Fensterverh.: {geometry_window_area_ratio:.2f}"
-        },
-        {
-          "metric": "geometry_window_size_variance_score",
-          "op": "between",
-          "min": 82,
-          "max": 90,
-          "reason": "Window Size Variance: {geometry_window_size_variance_score:.1f}%"
-        }
-      ]
-    },
-    {
-      "label": "rest",
-      "min_score": 2.0,
-      "conditions": [
-        {
-          "metric": "geometry_has_primary_object",
-          "op": "==",
-          "value": false,
-          "reason": "Kein Objekt gefunden"
-        },
-        {
-          "metric": "geometry_total_hole_count",
-          "op": "!=",
-          "value": 7,
-          "reason": "Hohlräume: {geometry_total_hole_count}"
-        },
-        {
-          "metric": "geometry_window_size_variance_score",
-          "op": "<=",
-          "value": 82,
-          "reason": "Window Size Variance: {geometry_window_size_variance_score:.1f}%"
-        },
-        {
-          "metric": "geometry_window_area_ratio",
-          "op": ">=",
-          "value": 2.0,
-          "reason": "Fensterverh.: {geometry_window_area_ratio:.2f}"
-        }
-      ]
-    },
-    {
-      "label": "middle breakage",
-      "min_score": 2.5,
-      "conditions": [
-        {
-          "metric": "geometry_total_hole_count",
-          "op": "<=",
-          "value": 6,
-          "reason": "Hohlräume: {geometry_total_hole_count}"
-        },
-        {
-          "metric": "geometry_window_area_ratio",
-          "op": ">=",
-          "value": 1.5,
-          "reason": "Fensterverh.: {geometry_window_area_ratio:.2f}"
-        },
-        {
-          "metric": "geometry_window_size_variance_score",
-          "op": "<=",
-          "value": 90,
-          "reason": "Window Size Variance: {geometry_window_size_variance_score:.1f}%"
-        },
-        {
-          "metric": "geometry_window_area_deviation_max",
-          "op": ">=",
-          "value": 0.15,
-          "reason": "Fensterabweichung: {geometry_window_area_deviation_max:.2f}"
-        },
-        {
-          "metric": "geometry_window_area_deviation_count",
-          "op": ">=",
-          "value": 1,
-          "reason": "Abw.-Fenster: {geometry_window_area_deviation_count}"
-        }
-      ]
-    },
-    {
-      "label": "corner or edge breakage",
-      "min_score": 2.0,
-      "conditions": [
-        {
-          "metric": "geometry_edge_segment_count",
-          "op": "<=",
-          "value": 6,
-          "reason": "Kantensegmente: {geometry_edge_segment_count}"
-        },
-        {
-          "metric": "geometry_edge_damage_ratio",
-          "op": "<=",
-          "value": 0.92,
-          "reason": "Kantenschaden: {geometry_edge_damage_ratio:.2f}"
-        },
-        {
-          "metric": "geometry_window_size_variance_score",
-          "op": ">=",
-          "value": 90,
-          "reason": "Window Size Variance: {geometry_window_size_variance_score:.1f}%"
-        },
-        {
-          "metric": "geometry_window_area_ratio",
-          "op": "<=",
-          "value": 1.4,
-          "reason": "Fensterverh.: {geometry_window_area_ratio:.2f}"
-        },
-        {
-          "metric": "geometry_outer_radius_min_ratio",
-          "op": "<=",
-          "value": 0.83,
-          "reason": "Min. Radiusanteil: {geometry_outer_radius_min_ratio:.2f}"
-        },
-        {
-          "metric": "geometry_outer_radius_low_fraction",
-          "op": ">=",
-          "value": 0.08,
-          "reason": "Kontur <75%: {geometry_outer_radius_low_fraction:.2f}"
-        }
-      ]
-    },
-    {
-      "label": "bruch",
-      "min_score": 2.5,
-      "conditions": [
-        {
-          "metric": "geometry_window_size_variance_score",
-          "op": "<=",
-          "value": 82,
-          "reason": "Window Size Variance: {geometry_window_size_variance_score:.1f}%"
-        },
-        {
-          "metric": "geometry_total_hole_count",
-          "op": "<=",
-          "value": 6,
-          "reason": "Hohlräume: {geometry_total_hole_count}"
-        },
-        {
-          "metric": "geometry_window_area_ratio",
-          "op": ">=",
-          "value": 2.0,
-          "reason": "Fensterverh.: {geometry_window_area_ratio:.2f}"
-        },
-        {
-          "metric": "geometry_outer_radius_min_ratio",
-          "op": "<=",
-          "value": 0.8,
-          "reason": "Min. Radiusanteil: {geometry_outer_radius_min_ratio:.2f}"
-        },
-        {
-          "metric": "geometry_outer_radius_low_fraction",
-          "op": ">=",
-          "value": 0.06,
-          "reason": "Kontur <75%: {geometry_outer_radius_low_fraction:.2f}"
-        },
-        {
-          "metric": "geometry_window_area_deviation_max",
-          "op": ">=",
-          "value": 0.18,
-          "reason": "Fensterabweichung: {geometry_window_area_deviation_max:.2f}"
-        }
-      ]
-    },
-    {
-      "label": "burnt",
-      "min_score": 2.0,
+      "label": "farbfehler",
       "conditions": [
         {
           "metric": "color_issue_detected",
           "op": "==",
           "value": true,
           "reason": "Farbabweichung erkannt"
-        },
-        {
-          "metric": "color_spot_area",
-          "op": ">=",
-          "value": 350,
-          "reason": "Fleckfläche: {color_spot_area}px"
-        },
-        {
-          "metric": "color_dark_delta",
-          "op": ">=",
-          "value": 32,
-          "reason": "Dunkelanteil: {color_dark_delta:.1f}"
-        },
-        {
-          "metric": "color_texture_stddev",
-          "op": ">=",
-          "value": 20,
-          "reason": "Textur: {color_texture_stddev:.1f}"
-        }
-      ]
-    },
-    {
-      "label": "different colour spot",
-      "min_score": 2.5,
-      "conditions": [
-        {
-          "metric": "color_issue_detected",
-          "op": "==",
-          "value": true,
-          "reason": "Farbabweichung erkannt"
-        },
-        {
-          "metric": "color_spot_area",
-          "op": ">=",
-          "value": 80,
-          "reason": "Fleckfläche: {color_spot_area}px"
-        },
-        {
-          "metric": "color_lab_stddev",
-          "op": ">=",
-          "value": 5.2,
-          "reason": "LAB-Std.: {color_lab_stddev:.2f}"
-        },
-        {
-          "metric": "color_dark_delta",
-          "op": "<=",
-          "value": 34,
-          "reason": "Dunkelanteil: {color_dark_delta:.1f}"
-        },
-        {
-          "metric": "color_texture_stddev",
-          "op": "<=",
-          "value": 18,
-          "reason": "Textur: {color_texture_stddev:.1f}"
-        }
-      ]
-    },
-    {
-      "label": "similar colour spot",
-      "min_score": 2.0,
-      "conditions": [
-        {
-          "metric": "color_issue_detected",
-          "op": "==",
-          "value": true,
-          "reason": "Farbabweichung erkannt"
-        },
-        {
-          "metric": "color_spot_area",
-          "op": ">=",
-          "value": 60,
-          "reason": "Fleckfläche: {color_spot_area}px"
-        },
-        {
-          "metric": "color_texture_stddev",
-          "op": ">=",
-          "value": 14,
-          "reason": "Textur: {color_texture_stddev:.1f}"
-        },
-        {
-          "metric": "color_lab_stddev",
-          "op": "<=",
-          "value": 6.2,
-          "reason": "LAB-Std.: {color_lab_stddev:.2f}"
-        },
-        {
-          "metric": "color_dark_delta",
-          "op": "<=",
-          "value": 35,
-          "reason": "Dunkelanteil: {color_dark_delta:.1f}"
         }
       ]
     },
     {
       "label": "farbfehler",
-      "min_score": 1.5,
       "conditions": [
         {
-          "metric": "color_issue_detected",
-          "op": "==",
-          "value": true,
-          "reason": "Farbabweichung erkannt"
+          "metric": "color_dark_delta",
+          "op": ">=",
+          "value": 24,
+          "reason": "Starker Dunkelanteil: {color_dark_delta}"
         },
         {
           "metric": "color_spot_area",
           "op": ">=",
-          "value": 40,
-          "reason": "Fleckfläche: {color_spot_area}px"
-        },
+          "value": 100,
+          "reason": "Farbfläche: {color_spot_area}px"
+        }
+      ]
+    },
+    {
+      "label": "bruch",
+      "conditions": [
+        {
+          "metric": "geometry_total_hole_count",
+          "op": "<=",
+          "value": 6,
+          "reason": "Weniger als 7 Fenster"
+        }
+      ]
+    },
+    {
+      "label": "rest",
+      "conditions": [
         {
           "metric": "geometry_window_size_variance_score",
-          "op": ">=",
-          "value": 85,
-          "reason": "Window Size Variance: {geometry_window_size_variance_score:.1f}%"
+          "op": "<",
+          "value": 82,
+          "reason": "Fenster-Varianz niedrig"
         }
       ]
     },
     {
       "label": "normal",
-      "min_score": 4.5,
-      "conditions": [
-        {
-          "metric": "pipeline_has_anomaly_flag",
-          "op": "==",
-          "value": false,
-          "reason": "Kein Anomalie-Marker"
-        },
-        {
-          "metric": "color_issue_detected",
-          "op": "==",
-          "value": false,
-          "reason": "Keine Farbabweichung"
-        },
-        {
-          "metric": "geometry_fragment_count",
-          "op": "==",
-          "value": 0,
-          "reason": "Keine Fragmente"
-        },
-        {
-          "metric": "geometry_total_hole_count",
-          "op": "==",
-          "value": 7,
-          "reason": "Hohlräume: {geometry_total_hole_count}"
-        },
-        {
-          "metric": "geometry_window_size_variance_score",
-          "op": ">=",
-          "value": 90,
-          "reason": "Window Size Variance: {geometry_window_size_variance_score:.1f}%"
-        },
-        {
-          "metric": "geometry_window_area_ratio",
-          "op": "<=",
-          "value": 1.6,
-          "reason": "Fensterverh.: {geometry_window_area_ratio:.2f}"
-        }
-      ]
+      "conditions": [],
+      "fallback_reason": "Standard"
     }
   ]
 }

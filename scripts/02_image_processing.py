@@ -260,6 +260,7 @@ def detect_spots(image, settings, debug=False):
     """Führt die Farb- und Texturprüfung mit den übergebenen Parametern aus."""
     ero_kernel = np.ones(settings["erosion_kernel_size"], np.uint8)
     noise_kernel = np.ones(settings["noise_kernel_size"], np.uint8)
+    min_spot_for_defect = max(0, int(settings.get("minimum_spot_area", 0)))
 
     gray, mask_obj, mask_analysis = build_masks(
         image,
@@ -320,6 +321,9 @@ def detect_spots(image, settings, debug=False):
         if fine_passed:
             is_defective = True
             spot_area = fine_area
+
+    if is_defective and spot_area < max(min_spot_for_defect, 120):
+        is_defective = False
 
     debug_image = None
     if debug:
@@ -571,7 +575,6 @@ CSV_FIELDS = [
     "relative_path",
     "source_path",
     "filename",
-    "pipeline_has_anomaly_flag",
     "geometry_has_primary_object",
     "geometry_area",
     "geometry_convex_area",
@@ -604,30 +607,18 @@ def analyze_image(img_path, source_root, geo_cfg, spot_cfg):
         return None
 
     rel_path = normalize_path(os.path.relpath(img_path, source_root))
-    is_anomaly = "Anomaly" in img_path
 
     contours, hierarchy = extract_contours(image)
     geo = geometry_stats(contours, hierarchy, geo_cfg)
 
     sym_score = symmetry_score(image)
 
-    if is_anomaly:
-        color_res = detect_spots(image, spot_cfg)
-    else:
-        color_res = {
-            "color_detection_flag": False,
-            "color_spot_area": 0,
-            "color_texture_stddev": 0.0,
-            "color_lab_stddev": 0.0,
-            "color_dark_delta": 0.0,
-            "color_median_intensity": 0.0,
-        }
+    color_res = detect_spots(image, spot_cfg)
 
     return {
         "relative_path": rel_path,
         "source_path": os.path.abspath(img_path),
         "filename": os.path.basename(img_path),
-        "pipeline_has_anomaly_flag": bool_text(is_anomaly),
         "geometry_has_primary_object": bool_text(
             geo["geometry_has_primary_object"]
         ),

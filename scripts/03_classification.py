@@ -54,23 +54,17 @@ def label_config():
         "map": dict(cfg.get("label_class_map", {})),
         "priorities": dict(cfg.get("label_priorities", {})),
         "rules": list(cfg.get("label_rules", [])),
+        "order": list(cfg.get("rule_order", [])),
     }
 
 
 def classification_defaults():
     cfg = class_config().get("defaults", {})
-    color_cfg = cfg.get("color_issue_thresholds", {})
     return {
         "sort_log_enabled": bool(cfg.get("sort_log_enabled", True)),
         "window_size_variance_sensitivity": float(
             cfg.get("window_size_variance_sensitivity", 1.1)
         ),
-        "color_issue_thresholds": {
-            "spot_area": int(color_cfg.get("spot_area", 40)),
-            "texture_stddev": float(color_cfg.get("texture_stddev", 12)),
-            "lab_stddev": float(color_cfg.get("lab_stddev", 5)),
-            "dark_delta": float(color_cfg.get("dark_delta", 18)),
-        },
     }
 
 
@@ -89,7 +83,7 @@ rule_defs = labels_cfg["rules"]
 defaults_cfg = CONFIG["defaults"]
 sort_flag = defaults_cfg["sort_log_enabled"]
 WINDOW_SIZE_VARIANCE_SENSITIVITY = defaults_cfg["window_size_variance_sensitivity"]
-COLOR_THRESHOLDS = defaults_cfg["color_issue_thresholds"]
+rule_order = labels_cfg["order"]
 
 
 # ---------------------------------------------------------------------------
@@ -243,9 +237,6 @@ def extract_metrics(row):
         "geometry_outer_radius_point_count": parse_int(
             row.get("geometry_outer_radius_point_count")
         ),
-        "pipeline_has_anomaly_flag": parse_flag(
-            row.get("pipeline_has_anomaly_flag")
-        ),
         "geometry_has_primary_object": parse_flag(
             row.get("geometry_has_primary_object")
         ),
@@ -257,17 +248,8 @@ def extract_metrics(row):
         "color_detection_flag": color_flag,
     }
 
-    spot_limit = COLOR_THRESHOLDS.get("spot_area", 40)
-    texture_limit = COLOR_THRESHOLDS.get("texture_stddev", 12)
-    lab_limit = COLOR_THRESHOLDS.get("lab_stddev", 5)
-    dark_limit = COLOR_THRESHOLDS.get("dark_delta", 18)
-    features["color_issue_detected"] = (
-        color_flag
-        or spot_area >= spot_limit
-        or texture_std >= texture_limit
-        or lab_std >= lab_limit
-        or dark_delta >= dark_limit
-    )
+    features["color_issue_detected"] = bool(color_flag)
+
     return features
 
 
@@ -299,60 +281,56 @@ def match_metric(value, condition):
     return False
 
 
-def score_rule(rule, features):
-    score = rule.get("base_score", 0.0)
+def rule_matches(rule, features):
+    conditions = rule.get("conditions", [])
+    if not conditions:
+        return True, rule.get("fallback_reason", "")
+
     matched_reasons = []
-    for condition in rule.get("conditions", []):
+    for condition in conditions:
         metric_value = features.get(condition.get("metric"), 0)
-        if match_metric(metric_value, condition):
-            score += condition.get("weight", 1.0)
-            template = condition.get("reason")
-            if template:
-                try:
-                    matched_reasons.append(template.format(**features))
-                except (KeyError, ValueError):
-                    matched_reasons.append(template)
-    if score >= rule.get("min_score", 1.0):
-        reason = "; ".join(matched_reasons[:2]) or rule.get("fallback_reason", "")
-        return {"label": rule["label"], "score": round(score, 3), "reason": reason}
-    return None
+        if not match_metric(metric_value, condition):
+            return False, ""
+        template = condition.get("reason")
+        if template:
+            try:
+                matched_reasons.append(template.format(**features))
+            except (KeyError, ValueError):
+                matched_reasons.append(template)
+
+    reason = "; ".join(matched_reasons[:2]) or rule.get("fallback_reason", "")
+    return True, reason
 
 
 def eval_rules(features):
-    decisions = []
-    for rule in rule_defs:
-        result = score_rule(rule, features)
-        if not result:
-            continue
-        result["class"] = label_map.get(rule["label"], rule["label"].title())
-        decisions.append(result)
-    return decisions
+    if rule_order:
+        order_map = {name: idx for idx, name in enumerate(rule_order)}
+    else:
+        order_map = {}
+        if label_rank:
+            order_map = {
+                name: priority for name, priority in label_rank.items()
+            }
 
-
-def pick_decision(decisions):
-    if not decisions:
-        return None
-    decisions.sort(
-        key=lambda item: (
-            -item["score"],
-            label_rank.get(item["class"].lower(), 100),
-            item["label"],
+    if order_map:
+        ordered_rules = sorted(
+            rule_defs,
+            key=lambda r: order_map.get(r["label"], len(order_map)),
         )
-    )
-    return decisions[0]
+    else:
+        ordered_rules = rule_defs
 
-
-def fallback_pick(features):
-    fallback_label = (
-        "rest" if features.get("pipeline_has_anomaly_flag") else "normal"
-    )
-    fallback_class = label_map.get(fallback_label, fallback_label.title())
-    return {
-        "label": fallback_label,
-        "class": fallback_class,
-        "score": 0.0,
-        "reason": "Fallback",
-    }
+    for rule in ordered_rules:
+        matched, reason = rule_matches(rule, features)
+        if not matched:
+            continue
+        cls_name = label_map.get(rule["label"], rule["label"].title())
+        return {
+            "label": rule["label"],
+            "class": cls_name,
+            "reason": reason,
+        }
+    return None
 
 
 def format_reason(decision):
@@ -363,8 +341,9 @@ def format_reason(decision):
 
 def classify_row(row):
     features = extract_metrics(row)
-    decisions = eval_rules(features)
-    decision = pick_decision(decisions) or fallback_pick(features)
+    decision = eval_rules(features)
+    if not decision:
+        return None, features
     return decision, features
 
 
@@ -386,6 +365,8 @@ def classify_csv(csv_path, sort_log):
         filename = row.get("filename") or os.path.basename(row.get("source_path", ""))
 
         decision, features = classify_row(row)
+        if not decision:
+            continue
         class_name = decision["class"]
         reason = format_reason(decision)
         variance_score = features.get(

@@ -49,16 +49,43 @@
       ]
     },
     {
-      "label": "small scratches",
-      "min_score": 4.5,
+      "label": "fryum stuck together",
+      "min_score": 2.5,
       "conditions": [
         {
-          "metric": "color_issue_detected",
-          "op": "==",
-          "value": false,
-          "weight": 1.0,
-          "reason": "Keine Farbabweichung"
+          "metric": "geometry_window_area_ratio",
+          "op": ">=",
+          "value": 2.1,
+          "weight": 2.5,
+          "reason": "Fensterverh.: {geometry_window_area_ratio:.2f}"
         },
+        {
+          "metric": "geometry_window_area_avg",
+          "op": "<=",
+          "value": 3800,
+          "weight": 1.0,
+          "reason": "Fensterfläche: {geometry_window_area_avg:.0f}"
+        },
+        {
+          "metric": "geometry_window_size_variance_score",
+          "op": "<=",
+          "value": 85,
+          "weight": 1.0,
+          "reason": "Window Size Variance: {geometry_window_size_variance_score:.1f}%"
+        },
+        {
+          "metric": "geometry_outer_contour_count",
+          "op": ">=",
+          "value": 2,
+          "weight": 0.5,
+          "reason": "Mehrfachobj.: {geometry_outer_contour_count}"
+        }
+      ]
+    },
+    {
+      "label": "small scratches",
+      "min_score": 2.0,
+      "conditions": [
         {
           "metric": "color_spot_area",
           "op": "between",
@@ -271,7 +298,7 @@
         {
           "metric": "geometry_outer_radius_min_ratio",
           "op": "<=",
-          "value": 0.8,
+          "value": 0.80,
           "weight": 1.5,
           "reason": "Min. Radiusanteil: {geometry_outer_radius_min_ratio:.2f}"
         },
@@ -435,82 +462,6 @@
       ]
     },
     {
-      "label": "farbfehler",
-      "min_score": 6.0,
-      "conditions": [
-        {
-          "metric": "color_issue_detected",
-          "op": "==",
-          "value": true,
-          "weight": 2.0,
-          "reason": "Farbabweichung erkannt"
-        },
-        {
-          "metric": "color_detection_flag",
-          "op": "==",
-          "value": true,
-          "weight": 2.0,
-          "reason": "Farbdetektor aktiv"
-        },
-        {
-          "metric": "color_spot_area",
-          "op": "between",
-          "min": 10,
-          "max": 70,
-          "weight": 1.5,
-          "reason": "Fleckfläche: {color_spot_area}px"
-        },
-        {
-          "metric": "color_texture_stddev",
-          "op": ">=",
-          "value": 11.0,
-          "weight": 1.0,
-          "reason": "Textur: {color_texture_stddev:.1f}"
-        },
-        {
-          "metric": "geometry_window_size_variance_score",
-          "op": ">=",
-          "value": 86,
-          "weight": 0.8,
-          "reason": "Window Size Variance: {geometry_window_size_variance_score:.1f}%"
-        }
-      ]
-    },
-    {
-      "label": "farbfehler",
-      "min_score": 4.5,
-      "conditions": [
-        {
-          "metric": "color_issue_detected",
-          "op": "==",
-          "value": true,
-          "weight": 2.0,
-          "reason": "Farbabweichung erkannt"
-        },
-        {
-          "metric": "color_detection_flag",
-          "op": "==",
-          "value": false,
-          "weight": 1.0,
-          "reason": "Kein Farbdetektor-Flag"
-        },
-        {
-          "metric": "color_spot_area",
-          "op": ">=",
-          "value": 35,
-          "weight": 1.5,
-          "reason": "Fleckfläche: {color_spot_area}px"
-        },
-        {
-          "metric": "color_texture_stddev",
-          "op": ">=",
-          "value": 10.0,
-          "weight": 1.0,
-          "reason": "Textur: {color_texture_stddev:.1f}"
-        }
-      ]
-    },
-    {
       "label": "normal",
       "min_score": 4.5,
       "conditions": [
@@ -555,143 +506,6 @@
           "value": 1.6,
           "weight": 0.5,
           "reason": "Fensterverh.: {geometry_window_area_ratio:.2f}"
-        }
-      ]
-    },
-    {
-      "label": "fryum stuck together",
-      "min_score": 9.5,
-      "conditions": [
-        {
-          "metric": "geometry_window_area_ratio",
-          "op": ">=",
-          "value": 1.7,
-          "weight": 5.0,
-          "reason": "Fensterverh.: {geometry_window_area_ratio:.2f}"
-        },
-        {
-          "metric": "geometry_window_area_avg",
-          "op": "<=",
-          "value": 3600,
-          "weight": 5.0,
-          "reason": "Fensterfläche: {geometry_window_area_avg:.0f}"
-        }
-      ]
-    },
-    {
-      "label": "fryum stuck together",
-      "min_score": 9.5,
-      "conditions": [
-        {
-          "metric": "geometry_window_area_ratio",
-          "op": ">=",
-          "value": 1.7,
-          "weight": 5.0,
-          "reason": "Fensterverh.: {geometry_window_area_ratio:.2f}"
-        },
-        {
-          "metric": "geometry_hull_ratio",
-          "op": ">=",
-          "value": 1.02,
-          "weight": 5.0,
-          "reason": "Hüllverhältnis: {geometry_hull_ratio:.3f}"
-        }
-      ]
-    },
-    {
-      "label": "fryum stuck together",
-      "min_score": 9.5,
-      "conditions": [
-        {
-          "metric": "geometry_window_area_ratio",
-          "op": ">=",
-          "value": 1.7,
-          "weight": 5.0,
-          "reason": "Fensterverh.: {geometry_window_area_ratio:.2f}"
-        },
-        {
-          "metric": "color_spot_area",
-          "op": ">=",
-          "value": 40,
-          "weight": 5.0,
-          "reason": "Fleckfläche: {color_spot_area}px"
-        }
-      ]
-    },
-    {
-      "label": "fryum stuck together",
-      "min_score": 9.0,
-      "conditions": [
-        {
-          "metric": "geometry_hull_ratio",
-          "op": ">=",
-          "value": 1.08,
-          "weight": 10.0,
-          "reason": "Hüllverhältnis: {geometry_hull_ratio:.3f}"
-        }
-      ]
-    },
-    {
-      "label": "fryum stuck together",
-      "min_score": 10.5,
-      "conditions": [
-        {
-          "metric": "geometry_hull_ratio",
-          "op": ">=",
-          "value": 1.02,
-          "weight": 5.5,
-          "reason": "Hüllverhältnis: {geometry_hull_ratio:.3f}"
-        },
-        {
-          "metric": "geometry_window_count",
-          "op": "<=",
-          "value": 4,
-          "weight": 5.5,
-          "reason": "Fensteranzahl: {geometry_window_count}"
-        }
-      ]
-    },
-    {
-      "label": "fryum stuck together",
-      "min_score": 9.5,
-      "conditions": [
-        {
-          "metric": "geometry_window_area_ratio",
-          "op": "between",
-          "min": 1.4,
-          "max": 1.6,
-          "weight": 4.0,
-          "reason": "Fensterverh.: {geometry_window_area_ratio:.2f}"
-        },
-        {
-          "metric": "geometry_has_center_hole",
-          "op": "==",
-          "value": false,
-          "weight": 3.0,
-          "reason": "Kein Mittelloch"
-        },
-        {
-          "metric": "geometry_window_size_variance_score",
-          "op": ">=",
-          "value": 84,
-          "weight": 3.0,
-          "reason": "Window Size Variance: {geometry_window_size_variance_score:.1f}%"
-        }
-      ]
-    },
-    {
-      "label": "fryum stuck together",
-      "min_score": 3.0,
-      "conditions": [
-        {
-          "metric": "relative_path",
-          "op": "in",
-          "values": [
-            "Anomaly/040.JPG",
-            "Anomaly/049.JPG"
-          ],
-          "weight": 10.0,
-          "reason": "Bekannter Fryum-Datensatz"
         }
       ]
     }

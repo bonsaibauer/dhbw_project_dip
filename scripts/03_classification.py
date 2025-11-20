@@ -61,7 +61,6 @@ def label_config():
 def classification_defaults():
     cfg = class_config().get("defaults", {})
     return {
-        "sort_log_enabled": bool(cfg.get("sort_log_enabled", True)),
         "window_size_variance_sensitivity": float(
             cfg.get("window_size_variance_sensitivity", 1.1)
         ),
@@ -81,7 +80,6 @@ label_map = labels_cfg["map"]
 label_rank = labels_cfg["priorities"]
 rule_defs = labels_cfg["rules"]
 defaults_cfg = CONFIG["defaults"]
-sort_flag = defaults_cfg["sort_log_enabled"]
 WINDOW_SIZE_VARIANCE_SENSITIVITY = defaults_cfg["window_size_variance_sensitivity"]
 rule_order = labels_cfg["order"]
 
@@ -359,7 +357,7 @@ def classify_csv(csv_path, sort_log):
 def classify_cli():
     classify_csv(
         pipe_csv,
-        sort_flag,
+        True,
     )
 
 

@@ -20,10 +20,6 @@
     "fragment": "Rest",
     "other": "Rest"
   },
-  "defaults": {
-    "sort_log_enabled": true,
-    "window_size_variance_sensitivity": 1.1
-  },
   "label_rules": [
     {
       "label": "farbfehler",

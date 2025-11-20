@@ -59,12 +59,7 @@ def label_config():
 
 
 def classification_defaults():
-    cfg = class_config().get("defaults", {})
-    return {
-        "window_size_variance_sensitivity": float(
-            cfg.get("window_size_variance_sensitivity", 1.1)
-        ),
-    }
+    return {}
 
 
 CONFIG = {
@@ -79,8 +74,6 @@ labels_cfg = CONFIG["labels"]
 label_map = labels_cfg["map"]
 label_rank = labels_cfg["priorities"]
 rule_defs = labels_cfg["rules"]
-defaults_cfg = CONFIG["defaults"]
-WINDOW_SIZE_VARIANCE_SENSITIVITY = defaults_cfg["window_size_variance_sensitivity"]
 rule_order = labels_cfg["order"]
 
 
@@ -159,7 +152,7 @@ def parse_int(value, default=0):
         return int(default)
 
 
-def window_size_variance_score(areas, sensitivity):
+def window_size_variance_score(areas):
     if not areas:
         return 0.0
     mean_val = float(np.mean(areas))
@@ -167,7 +160,7 @@ def window_size_variance_score(areas, sensitivity):
         return 0.0
     std_val = float(np.std(areas))
     cv_value = std_val / mean_val if mean_val else 0.0
-    raw_score = 100 * (1 - (cv_value * sensitivity))
+    raw_score = 100 * (1 - cv_value)
     return max(0.0, min(100.0, round(raw_score, 1)))
 
 
@@ -177,9 +170,7 @@ def extract_metrics(row):
     has_center_hole = parse_flag(row.get("geometry_has_center_hole"))
     total_holes = window_count + (1 if has_center_hole else 0)
 
-    variance_score = window_size_variance_score(
-        window_areas, WINDOW_SIZE_VARIANCE_SENSITIVITY
-    )
+    variance_score = window_size_variance_score(window_areas)
 
     spot_area = parse_int(row.get("color_spot_area"))
     dark_delta = parse_float(row.get("color_dark_delta"))

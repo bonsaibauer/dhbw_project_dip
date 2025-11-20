@@ -179,73 +179,21 @@ def extract_metrics(row):
     has_center_hole = parse_flag(row.get("geometry_has_center_hole"))
     total_holes = window_count + (1 if has_center_hole else 0)
 
-    avg_window = float(np.mean(window_areas)) if window_areas else 0.0
-    min_window = float(np.min(window_areas)) if window_areas else 0.0
-    max_window = float(np.max(window_areas)) if window_areas else 0.0
-    window_ratio = (max_window / min_window) if min_window > 0 else 1.0
     variance_score = window_size_variance_score(
         window_areas, WINDOW_SIZE_VARIANCE_SENSITIVITY
     )
 
-    geo_area = parse_float(row.get("geometry_area"))
-    geo_convex = parse_float(row.get("geometry_convex_area"))
-    hull_ratio = (geo_convex / geo_area) if geo_area else 0.0
-
     spot_area = parse_int(row.get("color_spot_area"))
-    texture_std = parse_float(row.get("color_texture_stddev"))
-    lab_std = parse_float(row.get("color_lab_stddev"))
     dark_delta = parse_float(row.get("color_dark_delta"))
     color_flag = parse_flag(row.get("color_detection_flag"))
-    symmetry_score = parse_float(row.get("symmetry_score"))
 
     features = {
-        "geometry_window_area_list": window_areas,
         "geometry_window_count": window_count,
         "geometry_has_center_hole": has_center_hole,
         "geometry_total_hole_count": total_holes,
-        "geometry_window_area_avg": avg_window,
-        "geometry_window_area_ratio": window_ratio,
         "geometry_window_size_variance_score": variance_score,
-        "geometry_hull_ratio": hull_ratio,
-        "geometry_edge_damage_ratio": parse_float(
-            row.get("geometry_edge_damage_ratio")
-        ),
-        "geometry_edge_segment_count": parse_int(
-            row.get("geometry_edge_segment_count")
-        ),
-        "geometry_fragment_count": parse_int(
-            row.get("geometry_fragment_count")
-        ),
-        "geometry_outer_contour_count": parse_int(
-            row.get("geometry_outer_contour_count")
-        ),
-        "geometry_outer_radius_min_ratio": parse_float(
-            row.get("geometry_outer_radius_min_ratio"), 1.0
-        ),
-        "geometry_outer_radius_low_fraction": parse_float(
-            row.get("geometry_outer_radius_low_fraction")
-        ),
-        "geometry_window_area_deviation_max": parse_float(
-            row.get("geometry_window_area_deviation_max")
-        ),
-        "geometry_window_area_deviation_count": parse_int(
-            row.get("geometry_window_area_deviation_count")
-        ),
-        "geometry_outer_radius_low_count": parse_int(
-            row.get("geometry_outer_radius_low_count")
-        ),
-        "geometry_outer_radius_point_count": parse_int(
-            row.get("geometry_outer_radius_point_count")
-        ),
-        "geometry_has_primary_object": parse_flag(
-            row.get("geometry_has_primary_object")
-        ),
-        "symmetry_score": symmetry_score,
         "color_spot_area": spot_area,
-        "color_texture_stddev": texture_std,
-        "color_lab_stddev": lab_std,
         "color_dark_delta": dark_delta,
-        "color_detection_flag": color_flag,
     }
 
     features["color_issue_detected"] = bool(color_flag)

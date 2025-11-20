@@ -71,7 +71,6 @@ def load_geometry():
         "minimum_hole_area": pull_value(cfg, "minimum_hole_area", 0),
         "minimum_window_area": pull_value(cfg, "minimum_window_area", 0),
         "maximum_center_area": pull_value(cfg, "maximum_center_area", 0),
-        "minimum_fragment_area": pull_value(cfg, "minimum_fragment_area", 0),
     }
 
 
@@ -94,20 +93,6 @@ def load_spot():
             pull_value(cfg, "noise_kernel_size", [0, 0])
         ),
         "minimum_spot_area": pull_value(cfg, "minimum_spot_area", 0),
-        "spot_area_ratio": pull_value(cfg, "spot_area_ratio", 0.0),
-        "fine_erosion_iterations": pull_value(
-            cfg,
-            "fine_erosion_iterations",
-            0,
-        ),
-        "inner_erosion_iterations": pull_value(
-            cfg,
-            "inner_erosion_iterations",
-            0,
-        ),
-        "inner_spot_ratio": pull_value(cfg, "inner_spot_ratio", 0.0),
-        "fine_spot_ratio": pull_value(cfg, "fine_spot_ratio", 0.0),
-        "fine_spot_area": pull_value(cfg, "fine_spot_area", 0),
         "dark_percentile": pull_value(cfg, "dark_percentile", 0),
     }
 
@@ -128,12 +113,6 @@ pipe_csv = path_map["pipeline_csv_path"]
 geo_cfg = load_geometry()
 spot_cfg = load_spot()
 
-OUTER_RADIUS_SMOOTH_WINDOW = 15
-OUTER_RADIUS_RATIO_THRESHOLD = 0.75
-WINDOW_DEVIATION_TOP_COUNT = 6
-WINDOW_DEVIATION_TOLERANCE = 0.15
-
-
 def show_progress(prefix, current, total, bar_len=30):
     if total <= 0:
         return
@@ -144,202 +123,64 @@ def show_progress(prefix, current, total, bar_len=30):
     print(f"\r{label}[{bar}] {ratio * 100:5.1f}% ({current}/{total})", end="", flush=True)
 
 
+BOOL_TRUE = "true"
+BOOL_FALSE = "false"
+
+
 def bool_text(value):
-    return "true" if value else "false"
+    return BOOL_TRUE if value else BOOL_FALSE
 
-
-# --- Spot-/Farbprüfung Helfer ---
 
 def build_masks(image, ero_kernel, ero_iterations):
-    """Erzeugt Masken für Objekt und Analysebereich."""
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     _, mask_obj = cv2.threshold(gray, 10, 255, cv2.THRESH_BINARY)
     mask_analysis = cv2.erode(mask_obj, ero_kernel, iterations=ero_iterations)
-    return gray, mask_obj, mask_analysis
+    return gray, mask_analysis
 
 
-def make_blackhat(gray, kernel):
-    """Hebt dunkle Flecken über Blackhat-Filter hervor."""
-    return cv2.morphologyEx(gray, cv2.MORPH_BLACKHAT, kernel)
-
-
-def check_contrast(blackhat_img, contrast_threshold):
-    """Segmentiert Defekte anhand eines Kontrastschwellwerts."""
-    _, mask_defects = cv2.threshold(blackhat_img, contrast_threshold, 255, cv2.THRESH_BINARY)
-    return mask_defects
-
-
-def filter_spots(mask_defects, mask_analysis, noise_kernel):
-    """Begrenzt Defekte auf den Snack und filtert Kleinstrauschen."""
-    valid = cv2.bitwise_and(mask_defects, mask_defects, mask=mask_analysis)
-    return cv2.morphologyEx(valid, cv2.MORPH_OPEN, noise_kernel)
-
-
-def texture_stats(gray, mask_analysis, dark_percentile):
-    """Berechnet Texturstreuung, Median und Dark-Delta."""
-    object_pixels = gray[mask_analysis == 255]
-    if object_pixels.size == 0:
-        return 0.0, 0.0, 0.0
-    texture_std = float(np.std(object_pixels))
-    median_intensity = float(np.median(object_pixels))
-    dark_percentile_val = float(np.percentile(object_pixels, dark_percentile))
-    dark_delta = median_intensity - dark_percentile_val
-    return texture_std, median_intensity, dark_delta
-
-
-def lab_stats(image, mask_analysis):
-    """Berechnet LAB-Standardabweichung innerhalb der Objektmaske."""
-    lab = cv2.cvtColor(image, cv2.COLOR_BGR2LAB)
-    a_channel = lab[:, :, 1]
-    masked_values = a_channel[mask_analysis == 255]
-    if masked_values.size == 0:
-        return 0.0
-    return float(np.std(masked_values))
-
-
-def erode_mask(mask, kernel, iterations):
-    """Erzeugt eine enger gefasste Maske und liefert Fläche zurück."""
-    if iterations <= 0:
-        return mask, cv2.countNonZero(mask)
-    eroded = cv2.erode(mask, kernel, iterations=iterations)
-    return eroded, cv2.countNonZero(eroded)
-
-
-def spot_ratio(spot_area, object_area):
-    """Hilfsfunktion für robuste Quotientenberechnung."""
-    return spot_area / max(1, object_area)
-
-
-def check_primary(spot_area, object_area, inner_spot_area, ratio_limit, inner_ratio_limit, spot_threshold):
-    """Prüft die Hauptbedingungen (Fläche + Verhältnis) für einen Defekt."""
-    ratio = spot_ratio(spot_area, object_area)
-    meets_ratio = (ratio >= ratio_limit) if ratio_limit > 0 else True
-    inner_ratio = inner_spot_area / max(1, spot_area)
-    meets_inner = (inner_ratio >= inner_ratio_limit) if spot_area > 0 else False
-    return spot_area > spot_threshold and meets_ratio and meets_inner
-
-
-def refine_spots(mask_obj, mask_defects, noise_kernel, ero_kernel, fine_iterations, inner_iterations, inner_ratio_limit, fine_ratio, spot_final_threshold):
-    """Führt die feinere Erosionsvariante aus, um kleinere Defekte zu erkennen."""
-    if fine_iterations <= 0:
-        return False, 0
-
-    mask_fine = cv2.erode(mask_obj, ero_kernel, iterations=fine_iterations)
-    fine_area_obj = cv2.countNonZero(mask_fine)
-    valid_fine = cv2.bitwise_and(mask_defects, mask_defects, mask=mask_fine)
-    valid_fine = cv2.morphologyEx(valid_fine, cv2.MORPH_OPEN, noise_kernel)
-    fine_spot_area = cv2.countNonZero(valid_fine)
-
-    fine_ratio_val = spot_ratio(fine_spot_area, fine_area_obj)
-    meets_fine_ratio = (fine_ratio_val >= fine_ratio) if fine_ratio > 0 else True
-
-    if inner_iterations > 0:
-        fine_inner_mask = cv2.erode(mask_fine, ero_kernel, iterations=inner_iterations)
-        fine_inner_valid = cv2.bitwise_and(valid_fine, valid_fine, mask=fine_inner_mask)
-        fine_inner_area = cv2.countNonZero(fine_inner_valid)
-    else:
-        fine_inner_area = fine_spot_area
-
-    fine_inner_ratio = fine_inner_area / max(1, fine_spot_area) if fine_spot_area > 0 else 0
-    meets_fine_inner = (fine_inner_ratio >= inner_ratio_limit) if fine_spot_area > 0 else False
-
-    passes = (
-        fine_spot_area > spot_final_threshold
-        and meets_fine_ratio
-        and meets_fine_inner
-    )
-    return passes, fine_spot_area
-
-
-def debug_view(blackhat_img, mask_analysis):
-    """Erzeugt das Debug-Bild mit maskiertem Blackhat-Result."""
-    return cv2.bitwise_and(blackhat_img, blackhat_img, mask=mask_analysis)
-
-
-def detect_spots(image, settings, debug=False):
-    """Führt die Farb- und Texturprüfung mit den übergebenen Parametern aus."""
+def detect_spots(image, settings):
+    """Reduzierte Farbanalyse: Blackhat + einfacher Schwellwert."""
     ero_kernel = np.ones(settings["erosion_kernel_size"], np.uint8)
     noise_kernel = np.ones(settings["noise_kernel_size"], np.uint8)
-    min_spot_for_defect = max(0, int(settings.get("minimum_spot_area", 0)))
-
-    gray, mask_obj, mask_analysis = build_masks(
+    gray, mask_analysis = build_masks(
         image,
         ero_kernel,
         settings["erosion_iterations"],
     )
-    object_area = cv2.countNonZero(mask_analysis)
-
     blackhat_kernel = cv2.getStructuringElement(
         cv2.MORPH_ELLIPSE,
         settings["blackhat_kernel_size"],
     )
-    blackhat_img = make_blackhat(gray, blackhat_kernel)
-    mask_defects = check_contrast(
+    blackhat_img = cv2.morphologyEx(gray, cv2.MORPH_BLACKHAT, blackhat_kernel)
+    _, mask_defects = cv2.threshold(
         blackhat_img,
         settings["blackhat_contrast_threshold"],
+        255,
+        cv2.THRESH_BINARY,
     )
-    valid_defects = filter_spots(mask_defects, mask_analysis, noise_kernel)
+    valid_defects = cv2.bitwise_and(mask_defects, mask_defects, mask=mask_analysis)
+    valid_defects = cv2.morphologyEx(valid_defects, cv2.MORPH_OPEN, noise_kernel)
 
     spot_area = cv2.countNonZero(valid_defects)
+    obj_pixels = gray[mask_analysis == 255]
+    if obj_pixels.size == 0:
+        texture_std = 0.0
+        dark_delta = 0.0
+    else:
+        texture_std = float(np.std(obj_pixels))
+        median_intensity = float(np.median(obj_pixels))
+        dark_val = float(np.percentile(obj_pixels, settings["dark_percentile"]))
+        dark_delta = median_intensity - dark_val
 
-    texture_std, median_intensity, dark_delta = texture_stats(
-        gray,
-        mask_analysis,
-        settings["dark_percentile"],
-    )
-    lab_std = lab_stats(image, mask_analysis)
+    min_spot = max(0, int(settings["minimum_spot_area"]))
+    is_defective = spot_area >= max(min_spot, 120)
 
-    inner_mask, _ = erode_mask(
-        mask_analysis,
-        ero_kernel,
-        settings["inner_erosion_iterations"],
-    )
-    inner_valid = cv2.bitwise_and(valid_defects, valid_defects, mask=inner_mask)
-    inner_spot_area = cv2.countNonZero(inner_valid)
-
-    is_defective = check_primary(
-        spot_area,
-        object_area,
-        inner_spot_area,
-        settings["spot_area_ratio"],
-        settings["inner_spot_ratio"],
-        settings["minimum_spot_area"],
-    )
-
-    if not is_defective:
-        fine_passed, fine_area = refine_spots(
-            mask_obj,
-            mask_defects,
-            noise_kernel,
-            ero_kernel,
-            settings["fine_erosion_iterations"],
-            settings["inner_erosion_iterations"],
-            settings["inner_spot_ratio"],
-            settings["fine_spot_ratio"],
-            settings["fine_spot_area"],
-        )
-        if fine_passed:
-            is_defective = True
-            spot_area = fine_area
-
-    if is_defective and spot_area < max(min_spot_for_defect, 120):
-        is_defective = False
-
-    debug_image = None
-    if debug:
-        debug_image = debug_view(blackhat_img, mask_analysis)
-
-    result = {
+    return {
         "color_detection_flag": is_defective,
         "color_spot_area": spot_area,
         "color_texture_stddev": texture_std,
-        "color_lab_stddev": lab_std,
         "color_dark_delta": dark_delta,
-        "color_median_intensity": median_intensity,
     }
-    if debug:
-        result["debug_image"] = debug_image
-    return result
 
 
 def symmetry_score(image):
@@ -376,123 +217,18 @@ def extract_contours(image):
     return cv2.findContours(thresh, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
 
 
-def outer_break_metrics(
-    contour, smooth_window=15, ratio_threshold=0.75
-):
-    result = {
-        "geometry_outer_radius_min_ratio": 1.0,
-        "geometry_outer_radius_low_fraction": 0.0,
-        "geometry_outer_radius_low_count": 0,
-        "geometry_outer_radius_point_count": 0,
-    }
-    if contour is None or len(contour) == 0:
-        return result
-
-    moments = cv2.moments(contour)
-    if moments["m00"] == 0:
-        return result
-
-    cx = int(moments["m10"] / moments["m00"])
-    cy = int(moments["m01"] / moments["m00"])
-    distances = []
-    for point in contour:
-        px, py = point[0]
-        distances.append(np.hypot(px - cx, py - cy))
-    if not distances:
-        return result
-
-    distances = np.array(distances, dtype=np.float32)
-    median_radius = float(np.median(distances))
-    if median_radius <= 0:
-        return result
-
-    point_count = len(distances)
-    result["geometry_outer_radius_point_count"] = point_count
-
-    if smooth_window > 1:
-        kernel = np.ones(int(smooth_window), dtype=np.float32)
-        kernel /= kernel.size
-        smoothed = np.convolve(distances, kernel, mode="same")
-    else:
-        smoothed = distances
-
-    min_ratio = float(np.min(smoothed)) / median_radius
-    threshold_value = median_radius * ratio_threshold
-    low_count = int(np.sum(smoothed < threshold_value))
-    low_fraction = (low_count / point_count) if point_count else 0.0
-
-    result["geometry_outer_radius_min_ratio"] = round(min_ratio, 4)
-    result["geometry_outer_radius_low_fraction"] = round(low_fraction, 4)
-    result["geometry_outer_radius_low_count"] = int(low_count)
-    return result
-
-
-def window_deviation_metrics(
-    window_areas, top_count=6, deviation_tolerance=0.25
-):
-    result = {
-        "geometry_window_top_mean_area": 0.0,
-        "geometry_window_area_deviation_max": 0.0,
-        "geometry_window_area_deviation_count": 0,
-    }
-    if not window_areas:
-        return result
-
-    valid_areas = [area for area in window_areas if area > 0]
-    if not valid_areas:
-        return result
-
-    top_target = max(1, int(top_count))
-    sorted_areas = sorted(valid_areas, reverse=True)
-    top_windows = sorted_areas[:top_target]
-    missing = max(0, top_target - len(top_windows))
-
-    if not top_windows:
-        result["geometry_window_area_deviation_max"] = 1.0
-        result["geometry_window_area_deviation_count"] = top_target
-        return result
-
-    mean_area = float(np.mean(top_windows))
-    result["geometry_window_top_mean_area"] = round(mean_area, 2)
-
-    if mean_area <= 0:
-        return result
-
-    deviations = [abs(area - mean_area) / mean_area for area in top_windows]
-    max_dev = max(deviations) if deviations else 0.0
-    result["geometry_window_area_deviation_max"] = round(max_dev, 4)
-    dev_count = sum(dev > deviation_tolerance for dev in deviations)
-    if missing > 0:
-        dev_count += missing
-        result["geometry_window_area_deviation_max"] = max(
-            result["geometry_window_area_deviation_max"], 1.0
-        )
-    result["geometry_window_area_deviation_count"] = int(dev_count)
-
-    return result
-
-
 def geometry_stats(contours, hierarchy, geo_cfg):
     """Zählt Fenster, Fragmente und liefert Geometriekennzahlen."""
     eps_fact = geo_cfg["polygon_epsilon_factor"]
     hole_min = geo_cfg["minimum_hole_area"]
     wind_min = geo_cfg["minimum_window_area"]
     ctr_maxa = geo_cfg["maximum_center_area"]
-    frag_min = geo_cfg["minimum_fragment_area"]
 
     stats = {
         "geometry_has_primary_object": False,
-        "geometry_area": 0,
-        "geometry_solidity": 0,
         "geometry_window_count": 0,
         "geometry_has_center_hole": False,
-        "main_contour": None,
-        "geometry_fragment_count": 0,
-        "geometry_convex_area": 0,
         "geometry_window_area_list": [],
-        "geometry_outer_contour_count": 0,
-        "geometry_edge_damage_ratio": 0.0,
-        "geometry_edge_segment_count": 0,
     }
 
     if not contours:
@@ -500,31 +236,11 @@ def geometry_stats(contours, hierarchy, geo_cfg):
 
     main_cnt_idx = max(range(len(contours)), key=lambda i: cv2.contourArea(contours[i]))
     main_cnt = contours[main_cnt_idx]
-    area = cv2.contourArea(main_cnt)
-
     stats["geometry_has_primary_object"] = True
-    stats["geometry_area"] = area
-    stats["main_contour"] = main_cnt
-    hull = cv2.convexHull(main_cnt)
-    stats["geometry_convex_area"] = cv2.contourArea(hull)
-    hull_peri = cv2.arcLength(hull, True)
-    main_peri = cv2.arcLength(main_cnt, True)
-    stats["geometry_edge_damage_ratio"] = (
-        (hull_peri / max(1.0, main_peri)) if main_peri > 0 else 0.0
-    )
-    approx = cv2.approxPolyDP(main_cnt, eps_fact * main_peri, True)
-    stats["geometry_edge_segment_count"] = len(approx)
 
     if hierarchy is not None:
         for i, cnt in enumerate(contours):
             parent_idx = hierarchy[0][i][3]
-            cnt_area = cv2.contourArea(cnt)
-
-            if parent_idx == -1:
-                stats["geometry_outer_contour_count"] += 1
-                if i != main_cnt_idx and cnt_area > frag_min:
-                    stats["geometry_fragment_count"] += 1
-                    continue
 
             if parent_idx == main_cnt_idx:
                 hole_area = cv2.contourArea(cnt)
@@ -552,22 +268,6 @@ def geometry_stats(contours, hierarchy, geo_cfg):
             stats["geometry_window_area_list"].pop(min_idx)
             stats["geometry_window_count"] = len(stats["geometry_window_area_list"])
 
-    stats.update(
-        outer_break_metrics(
-            stats.get("main_contour"),
-            OUTER_RADIUS_SMOOTH_WINDOW,
-            OUTER_RADIUS_RATIO_THRESHOLD,
-        )
-    )
-    stats.update(
-        window_deviation_metrics(
-            stats.get("geometry_window_area_list"),
-            WINDOW_DEVIATION_TOP_COUNT,
-            WINDOW_DEVIATION_TOLERANCE,
-        )
-    )
-    stats["main_contour"] = None
-
     return stats
 
 
@@ -575,29 +275,12 @@ CSV_FIELDS = [
     "relative_path",
     "source_path",
     "filename",
-    "geometry_has_primary_object",
-    "geometry_area",
-    "geometry_convex_area",
-    "geometry_edge_damage_ratio",
-    "geometry_edge_segment_count",
     "geometry_window_count",
     "geometry_has_center_hole",
-    "geometry_fragment_count",
-    "geometry_outer_contour_count",
     "geometry_window_area_list",
-    "geometry_outer_radius_min_ratio",
-    "geometry_outer_radius_low_fraction",
-    "geometry_outer_radius_low_count",
-    "geometry_outer_radius_point_count",
-    "geometry_window_area_deviation_max",
-    "geometry_window_area_deviation_count",
-    "symmetry_score",
     "color_detection_flag",
     "color_spot_area",
-    "color_texture_stddev",
-    "color_lab_stddev",
     "color_dark_delta",
-    "color_median_intensity",
 ]
 
 
@@ -611,43 +294,22 @@ def analyze_image(img_path, source_root, geo_cfg, spot_cfg):
     contours, hierarchy = extract_contours(image)
     geo = geometry_stats(contours, hierarchy, geo_cfg)
 
-    sym_score = symmetry_score(image)
-
     color_res = detect_spots(image, spot_cfg)
 
     return {
         "relative_path": rel_path,
         "source_path": os.path.abspath(img_path),
         "filename": os.path.basename(img_path),
-        "geometry_has_primary_object": bool_text(
-            geo["geometry_has_primary_object"]
-        ),
-        "geometry_area": f"{geo.get('geometry_area', 0)}",
-        "geometry_convex_area": f"{geo.get('geometry_convex_area', 0)}",
-        "geometry_edge_damage_ratio": f"{geo.get('geometry_edge_damage_ratio', 0.0)}",
-        "geometry_edge_segment_count": f"{geo.get('geometry_edge_segment_count', 0)}",
         "geometry_window_count": f"{geo.get('geometry_window_count', 0)}",
         "geometry_has_center_hole": bool_text(
             geo.get("geometry_has_center_hole", False)
         ),
-        "geometry_fragment_count": f"{geo.get('geometry_fragment_count', 0)}",
-        "geometry_outer_contour_count": f"{geo.get('geometry_outer_contour_count', 0)}",
         "geometry_window_area_list": json.dumps(
             geo.get("geometry_window_area_list", [])
         ),
-        "geometry_outer_radius_min_ratio": f"{geo.get('geometry_outer_radius_min_ratio', 0.0):.4f}",
-        "geometry_outer_radius_low_fraction": f"{geo.get('geometry_outer_radius_low_fraction', 0.0):.4f}",
-        "geometry_outer_radius_low_count": f"{geo.get('geometry_outer_radius_low_count', 0)}",
-        "geometry_outer_radius_point_count": f"{geo.get('geometry_outer_radius_point_count', 0)}",
-        "geometry_window_area_deviation_max": f"{geo.get('geometry_window_area_deviation_max', 0.0):.4f}",
-        "geometry_window_area_deviation_count": f"{geo.get('geometry_window_area_deviation_count', 0)}",
-        "symmetry_score": f"{sym_score:.2f}",
         "color_detection_flag": bool_text(color_res["color_detection_flag"]),
         "color_spot_area": f"{color_res.get('color_spot_area', 0)}",
-        "color_texture_stddev": f"{color_res.get('color_texture_stddev', 0.0)}",
-        "color_lab_stddev": f"{color_res.get('color_lab_stddev', 0.0)}",
         "color_dark_delta": f"{color_res.get('color_dark_delta', 0.0)}",
-        "color_median_intensity": f"{color_res.get('color_median_intensity', 0.0)}",
     }
 
 

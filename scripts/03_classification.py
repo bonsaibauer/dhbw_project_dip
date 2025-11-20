@@ -40,37 +40,37 @@ def norm_path(path_value):
     return os.path.normpath(path_value) if path_value else ""
 
 
-def read_path_section(cfg_name):
-    return load_path_config().get(cfg_name, {})
-
-
 def load_paths():
+    paths = load_path_config().get("paths", {})
     return {
         key: norm_path(value)
-        for key, value in read_path_section("paths").items()
+        for key, value in paths.items()
     }
 
 
-def map_labels():
-    return dict(class_config().get("label_class_map", {}))
-
-
-def rank_labels():
-    return dict(class_config().get("label_priorities", {}))
-
-
-def rule_list():
-    return list(class_config().get("label_rules", []))
+def label_config():
+    cfg = class_config()
+    return {
+        "map": dict(cfg.get("label_class_map", {})),
+        "priorities": dict(cfg.get("label_priorities", {})),
+        "rules": list(cfg.get("label_rules", [])),
+    }
 
 
 SORT_LOG_ENABLED = True
 
-path_map = load_paths()
+CONFIG = {
+    "paths": load_paths(),
+    "labels": label_config(),
+}
+
+path_map = CONFIG["paths"]
 pipe_csv = path_map["pipeline_csv_path"]
-label_map = map_labels()
-label_rank = rank_labels()
+labels_cfg = CONFIG["labels"]
+label_map = labels_cfg["map"]
+label_rank = labels_cfg["priorities"]
 sort_flag = SORT_LOG_ENABLED
-rule_defs = rule_list()
+rule_defs = labels_cfg["rules"]
 WINDOW_SIZE_VARIANCE_SENSITIVITY = 1.1
 OUTER_BREAK_LOW_FRACTION_THRESHOLD = 0.02
 OUTER_BREAK_MIN_POINTS = 10
@@ -344,7 +344,7 @@ def fallback_pick(features):
 
 def format_reason(decision):
     label_title = decision["label"].title()
-    detail = decision.get("reason") or "Regel erfüllt"
+    detail = decision.get("reason") or "Regel erfuellt"
     return f"{label_title}: {detail}"
 
 
@@ -460,6 +460,7 @@ def classify_csv(csv_path, sort_log):
 
     predictions = []
     total_files = len(rows)
+    has_progress = sort_log and total_files > 0
 
     for idx, row in enumerate(rows, 1):
         rel_path = row.get("relative_path", "")
@@ -488,10 +489,10 @@ def classify_csv(csv_path, sort_log):
             }
         )
 
-        if sort_log and total_files > 0:
+        if has_progress:
             show_progress("  Klassifizierung", idx, total_files)
 
-    if sort_log and total_files > 0:
+    if has_progress:
         print()
 
     required_columns = [

@@ -21,6 +21,12 @@ python main.py
 ## 3. Dokumentation & Hintergründe
 | Thema | Link | Beschreibung |
 | --- | --- | --- |
-| Workflow & Parameter | [docs/workflow.md](docs/workflow.md) | Vollständige 6-Schritte-Erklärung (Segmentierung, Sortierung, Validierung, Parameter). |
+| Pipeline-Überblick & Parameter | [docs/workflow.md](docs/workflow.md) | Gesamtfluss der 5 Stages, Artefakte und Konfigurationsquellen. |
+| main.py Orchestrierung | [docs/main.md](docs/main.md) | Einstiegspunkte, STAGE_LIST und Pfad-Setup der Pipeline. |
+| Stage 1: Segmentierung | [docs/01_segmentation.md](docs/01_segmentation.md) | Zuschnitt/Warp, HSV-Parameter und CLI für die Rohbilder. |
+| Stage 2: Bildverarbeitung | [docs/02_image_processing.md](docs/02_image_processing.md) | Feature-Extraktion (Geometrie/Farbe) und CSV-Erstellung. |
+| Stage 3: Klassifikation | [docs/03_classification.md](docs/03_classification.md) | Regel-Engine, Label-Prioritäten und Entscheidungsgrundlagen. |
+| Stage 4: Sortierung | [docs/04_sorting.md](docs/04_sorting.md) | Kopierlogik der sortierten Ausgaben und Reporting. |
+| Stage 5: Validierung | [docs/05_validation.md](docs/05_validation.md) | Abgleich mit Annotationen, Fehlklassifikationen und Statistik. |
 | Aufgabenstellung | [docs/aufgabenstellung.md](docs/aufgabenstellung.md) | Originalbeschreibung der Aufgabe. |
 | Git-Anleitung | [docs/github_anleitung.md](docs/github_anleitung.md) | Hinweise zum Arbeiten mit Git/GitHub. |

@@ -57,11 +57,27 @@ def label_config():
     }
 
 
-SORT_LOG_ENABLED = True
+def classification_defaults():
+    cfg = class_config().get("defaults", {})
+    color_cfg = cfg.get("color_issue_thresholds", {})
+    return {
+        "sort_log_enabled": bool(cfg.get("sort_log_enabled", True)),
+        "window_size_variance_sensitivity": float(
+            cfg.get("window_size_variance_sensitivity", 1.1)
+        ),
+        "color_issue_thresholds": {
+            "spot_area": int(color_cfg.get("spot_area", 40)),
+            "texture_stddev": float(color_cfg.get("texture_stddev", 12)),
+            "lab_stddev": float(color_cfg.get("lab_stddev", 5)),
+            "dark_delta": float(color_cfg.get("dark_delta", 18)),
+        },
+    }
+
 
 CONFIG = {
     "paths": load_paths(),
     "labels": label_config(),
+    "defaults": classification_defaults(),
 }
 
 path_map = CONFIG["paths"]
@@ -69,17 +85,11 @@ pipe_csv = path_map["pipeline_csv_path"]
 labels_cfg = CONFIG["labels"]
 label_map = labels_cfg["map"]
 label_rank = labels_cfg["priorities"]
-sort_flag = SORT_LOG_ENABLED
 rule_defs = labels_cfg["rules"]
-WINDOW_SIZE_VARIANCE_SENSITIVITY = 1.1
-OUTER_BREAK_LOW_FRACTION_THRESHOLD = 0.02
-OUTER_BREAK_MIN_POINTS = 10
-OUTER_BREAK_MIN_RATIO_THRESHOLD = 0.5
-INNER_BREAK_MIN_WINDOWS = 6
-INNER_BREAK_DEVIATION_TOLERANCE = 0.12
-ANOMALY_INNER_BREAK_TOLERANCE = 0.04
-ANOMALY_COLOR_SPOT_LIMIT = 60
-INNER_BREAK_DEVIATION_COUNT_THRESHOLD = 1
+defaults_cfg = CONFIG["defaults"]
+sort_flag = defaults_cfg["sort_log_enabled"]
+WINDOW_SIZE_VARIANCE_SENSITIVITY = defaults_cfg["window_size_variance_sensitivity"]
+COLOR_THRESHOLDS = defaults_cfg["color_issue_thresholds"]
 
 
 # ---------------------------------------------------------------------------
@@ -247,13 +257,16 @@ def extract_metrics(row):
         "color_detection_flag": color_flag,
     }
 
-    color_threshold = 40
+    spot_limit = COLOR_THRESHOLDS.get("spot_area", 40)
+    texture_limit = COLOR_THRESHOLDS.get("texture_stddev", 12)
+    lab_limit = COLOR_THRESHOLDS.get("lab_stddev", 5)
+    dark_limit = COLOR_THRESHOLDS.get("dark_delta", 18)
     features["color_issue_detected"] = (
         color_flag
-        or spot_area >= color_threshold
-        or texture_std >= 12
-        or lab_std >= 5
-        or dark_delta >= 18
+        or spot_area >= spot_limit
+        or texture_std >= texture_limit
+        or lab_std >= lab_limit
+        or dark_delta >= dark_limit
     )
     return features
 
@@ -351,102 +364,8 @@ def format_reason(decision):
 def classify_row(row):
     features = extract_metrics(row)
     decisions = eval_rules(features)
-    decisions.extend(bruch_decisions(features))
     decision = pick_decision(decisions) or fallback_pick(features)
     return decision, features
-
-
-def bruch_decisions(features):
-    """Mirror bruch.py logic using extracted metrics for inner/outer breaks."""
-    if not features.get("pipeline_has_anomaly_flag"):
-        return []
-
-    color_spot_area = features.get("color_spot_area", 0)
-    if color_spot_area > ANOMALY_COLOR_SPOT_LIMIT:
-        return []
-
-    decisions = []
-
-    window_areas = features.get("geometry_window_area_list") or []
-    valid_areas = [area for area in window_areas if area > 0]
-    low_fraction = features.get("geometry_outer_radius_low_fraction", 0.0)
-    low_count = features.get("geometry_outer_radius_low_count", 0)
-    point_count = features.get("geometry_outer_radius_point_count", 0)
-    min_ratio = features.get("geometry_outer_radius_min_ratio", 1.0)
-
-    top_windows = sorted(valid_areas, reverse=True)[:INNER_BREAK_MIN_WINDOWS]
-    inner_reasons = []
-    if len(top_windows) < INNER_BREAK_MIN_WINDOWS:
-        inner_reasons.append(
-            f"Weniger Fenster: {len(top_windows)}/{INNER_BREAK_MIN_WINDOWS}"
-        )
-    elif top_windows:
-        mean_area = float(np.mean(top_windows))
-        if mean_area > 0:
-            anomaly_flag = features.get("pipeline_has_anomaly_flag", False)
-            inner_threshold = INNER_BREAK_DEVIATION_TOLERANCE
-            if anomaly_flag:
-                inner_threshold = min(
-                    inner_threshold, ANOMALY_INNER_BREAK_TOLERANCE
-                )
-            deviations = [
-                abs(area - mean_area) / mean_area for area in top_windows
-            ]
-            max_dev = max(deviations) if deviations else 0.0
-            if max_dev >= inner_threshold:
-                inner_reasons.append(
-                    f"Fensterabweichung: {max_dev:.2f}"
-                )
-            if sum(
-                dev >= inner_threshold for dev in deviations
-            ) >= INNER_BREAK_DEVIATION_COUNT_THRESHOLD:
-                inner_reasons.append("Mehrere abweichende Fenster")
-
-    outer_reasons = []
-    if low_count >= OUTER_BREAK_MIN_POINTS:
-        outer_reasons.append(
-            f"Konturpunkte <75%: {low_count}/{point_count or '?'}"
-        )
-    elif low_fraction >= OUTER_BREAK_LOW_FRACTION_THRESHOLD:
-        outer_reasons.append(
-            f"Kontur unter 75% Anteil: {low_fraction:.2%}"
-        )
-    if min_ratio <= OUTER_BREAK_MIN_RATIO_THRESHOLD:
-        outer_reasons.append(f"Minimaler Radiusanteil: {min_ratio:.2f}")
-
-    def add_decision(label, reason, score):
-        decisions.append(
-            {
-                "label": label,
-                "class": label_map.get(label, label.title()),
-                "score": score,
-                "reason": reason,
-            }
-        )
-
-    if outer_reasons:
-        add_decision(
-            "corner or edge breakage",
-            "; ".join(outer_reasons),
-            9.0,
-        )
-
-    if inner_reasons:
-        add_decision(
-            "middle breakage",
-            "; ".join(inner_reasons),
-            9.0,
-        )
-
-    if outer_reasons or inner_reasons:
-        combined = outer_reasons + inner_reasons
-        add_decision(
-            "bruch",
-            "; ".join(combined),
-            9.5 if len(combined) > 1 else 9.2,
-        )
-
-    return decisions
 
 
 # ---------------------------------------------------------------------------

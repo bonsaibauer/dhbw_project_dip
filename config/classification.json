@@ -20,6 +20,16 @@
     "fragment": "Rest",
     "rest": "Rest"
   },
+  "defaults": {
+    "sort_log_enabled": true,
+    "window_size_variance_sensitivity": 1.1,
+    "color_issue_thresholds": {
+      "spot_area": 40,
+      "texture_stddev": 12,
+      "lab_stddev": 5,
+      "dark_delta": 18
+    }
+  },
   "label_rules": [
     {
       "label": "fragment",

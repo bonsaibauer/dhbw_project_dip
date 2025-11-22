@@ -1,7 +1,6 @@
 import cv2
 import numpy as np
 import os
-import shutil
 
 
 def detect_defects(image, spot_threshold=43, debug=False):
@@ -44,7 +43,7 @@ def detect_defects(image, spot_threshold=43, debug=False):
 
 
 def run_color_check(sorted_dir):
-    print("\n[farb.py] Starte Farbpr�fung (Strenge Filterung + Rand-Ignoranz)...")
+    print("\n[farb.py] Starte Farbprüfung (Strenge Filterung + Rand-Ignoranz)...")
 
     defect_dir = os.path.join(sorted_dir, "Farbfehler")
     os.makedirs(defect_dir, exist_ok=True)
@@ -54,9 +53,6 @@ def run_color_check(sorted_dir):
 
     for cls in check_classes:
         class_path = os.path.join(sorted_dir, cls)
-
-        if not os.path.exists(class_path):
-            continue
 
         for root, _, files in os.walk(class_path):
             for file_name in files:
@@ -87,6 +83,6 @@ def run_color_check(sorted_dir):
                         os.remove(file_path)
                         moved_count += 1
                     except OSError as e:
-                        print(f"Fehler beim L�schen von {file_path}: {e}")
+                        print(f"Fehler beim Löschen von {file_path}: {e}")
 
-    print(f"[farb.py] Farbpr�fung abgeschlossen. {moved_count} Bilder markiert und verschoben.")
+    print(f"[farb.py] Farbprüfung abgeschlossen. {moved_count} Bilder markiert und verschoben.")

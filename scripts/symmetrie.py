@@ -1,5 +1,4 @@
 import cv2
-import numpy as np
 import os
 
 
@@ -24,29 +23,22 @@ def get_symmetry_score(image_bgr):
 
     for angle in range(60, 360, 60):
         rot_matrix = cv2.getRotationMatrix2D((cx, cy), angle, 1.0)
-
         rotated_mask = cv2.warpAffine(mask, rot_matrix, (w, h), flags=cv2.INTER_NEAREST, borderValue=0)
-
         symmetric_core = cv2.bitwise_and(symmetric_core, rotated_mask)
 
     asymmetric_mask = cv2.subtract(mask, symmetric_core)
     asymmetric_pixel_count = cv2.countNonZero(asymmetric_mask)
 
     error_ratio = asymmetric_pixel_count / total_pixels
-
     score = (1.0 - error_ratio) * 100.0
 
     return max(0.0, min(100.0, round(score, 2)))
 
 
 def run_symmetry_check(sorted_dir):
-    print("\n[symmetrie.py] Starte Symmetrie-Analyse f�r Klasse 'Normal'...")
+    print("\n[symmetrie.py] Starte Symmetrie-Analyse für Klasse 'Normal'...")
 
     normal_path = os.path.join(sorted_dir, "Normal")
-
-    if not os.path.exists(normal_path):
-        print(f"Warnung: Ordner {normal_path} existiert nicht. �berspringe Symmetrie-Check.")
-        return
 
     count = 0
     scores = []

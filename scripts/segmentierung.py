@@ -54,9 +54,8 @@ def run_preprocessing(image, result):
 
 
 def prepare_dataset(source_dir, target_dir):
-    if os.path.exists(target_dir):
-        shutil.rmtree(target_dir)
-    os.makedirs(target_dir)
+    shutil.rmtree(target_dir, ignore_errors=True)
+    os.makedirs(target_dir, exist_ok=True)
 
     print(f"[segmentierung.py] Starte Vorverarbeitung von {source_dir} nach {target_dir}...")
 

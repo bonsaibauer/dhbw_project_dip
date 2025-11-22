@@ -1,4 +1,4 @@
-# Digital Image Processing – DHBW Projekt
+# Digital Image Processing - DHBW Projekt
 
 ## 1. Umgebung & Daten vorbereiten
 
@@ -7,10 +7,10 @@
    pip install -r requirements.txt
    ```
 2. **Datenstruktur vorbereiten**  
-   - Im Ordner `data/Images` müssen die Rohbilder liegen (Standard: Unterordner `Normal/` und `Anomaly/`).  
+   - Standard: `data/Images/Normal`, `data/Images/Anomaly` und `data/image_anno.csv` im Repo-Root.  
+   - Alternativ: Beim Start von `main.py` einen eigenen `data`-Ordner Pfad mit exakt dieser Struktur angeben.  
    - Optional zugehörige Masken in `data/Masks`.  
-   - Annotationen (`data/image_anno.csv`) werden für die Validierung benötigt.  
-   - Wenn andere Pfade genutzt werden sollen, müssen die Konstanten am Anfang von `main.py` entsprechend angepasst werden (Struktur bleiben: `Images/<Klasse>/<Bild>.JPG`).
+   - Annotationen (`data/image_anno.csv`) werden für die Validierung benötigt.
 
 ## 2. Workflow ausführen
 

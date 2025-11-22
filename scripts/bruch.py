@@ -2,8 +2,6 @@ import os
 import shutil
 import cv2
 import numpy as np
-import matplotlib.pyplot as plt
-import random
 
 OUTER_BREAK_SENSITIVITY = 0.78
 MAX_RADIUS_JUMP = 6.0
@@ -110,13 +108,13 @@ def analyze_snack_geometry(image):
         d_smooth = np.convolve(dists_outer, np.ones(w) / w, mode='same')
         median_r = np.median(dists_outer)
         if len(np.where(d_smooth < median_r * OUTER_BREAK_SENSITIVITY)[0]) > 10:
-            return "Bruch", "�u�erer Bruch: Tiefe"
+            return "Bruch", "Äußerer Bruch: Tiefe"
         grad = np.abs(np.gradient(d_smooth))
         if len(grad) > 20 and np.max(grad[10:-10]) > MAX_RADIUS_JUMP:
-            return "Bruch", "�u�erer Bruch: Kante"
+            return "Bruch", "Äußerer Bruch: Kante"
         loc_var = check_local_variance(dists_outer, window_size=15)
         if np.max(loc_var) > LOCAL_VARIANCE_THRESHOLD:
-            return "Bruch", f"�u�erer Bruch: Unruhig (Var {np.max(loc_var):.1f})"
+            return "Bruch", f"Äußerer Bruch: Unruhig (Var {np.max(loc_var):.1f})"
 
     contours_all, hierarchy = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_NONE)
     valid_windows = []
@@ -151,99 +149,14 @@ def analyze_snack_geometry(image):
     return "Normal", "OK"
 
 
-def create_visual_report(image_paths, output_file="analysis_report.png"):
-    num_images = min(5, len(image_paths))
-    if num_images == 0:
-        return
-    print(f"[bruch.py] Erstelle grafischen Bericht...")
-
-    fig, axes = plt.subplots(4, num_images, figsize=(4 * num_images, 12))
-    plt.subplots_adjust(hspace=0.4, wspace=0.3)
-    if num_images == 1:
-        axes = np.array([[axes[0]], [axes[1]], [axes[2]], [axes[3]]])
-
-    for idx, img_path in enumerate(image_paths[:num_images]):
-        img = cv2.imread(img_path)
-        if img is None:
-            continue
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        _, mask = cv2.threshold(gray, 1, 255, cv2.THRESH_BINARY)
-
-        kernel = np.ones((3, 3), np.uint8)
-        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
-        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
-
-        contours_ext, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
-        d_smooth_outer = []
-        var_outer = []
-        cX, cY = 0, 0
-        if contours_ext:
-            outer = max(contours_ext, key=cv2.contourArea)
-            (x_fl, y_fl), _ = cv2.minEnclosingCircle(outer)
-            cX, cY = int(x_fl), int(y_fl)
-            do = [np.sqrt((p[0][0] - cX) ** 2 + (p[0][1] - cY) ** 2) for p in outer]
-            if do:
-                d_smooth_outer = np.convolve(do, np.ones(15) / 15, mode='same')
-                var_outer = check_local_variance(do, window_size=15)
-
-        contours_all, hierarchy = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_NONE)
-        inner_profiles = []
-
-        if hierarchy is not None:
-            for i, c in enumerate(contours_all):
-                if hierarchy[0][i][3] != -1 and cv2.contourArea(c) > MIN_WINDOW_AREA:
-                    Mh = cv2.moments(c)
-                    if Mh["m00"] != 0:
-                        hx, hy = int(Mh["m10"] / Mh["m00"]), int(Mh["m01"] / Mh["m00"])
-                        if np.sqrt((hx - cX) ** 2 + (hy - cY) ** 2) > 30:
-                            rads, _ = get_radial_profile(c)
-                            if len(rads) > 0:
-                                x_old = np.linspace(0, 1, len(rads))
-                                x_new = np.linspace(0, 1, 100)
-                                rads_interp = np.interp(x_new, x_old, rads)
-                                corners = count_peaks(rads, window=8, min_dist=MIN_PEAK_DISTANCE)
-                                inner_profiles.append((rads_interp, corners))
-
-        axes[0, idx].imshow(mask, cmap='gray')
-        axes[0, idx].set_title(os.path.basename(img_path), fontsize=8)
-        axes[0, idx].axis('off')
-
-        if len(d_smooth_outer) > 0:
-            axes[1, idx].plot(d_smooth_outer, color='blue')
-            med = np.median(d_smooth_outer)
-            axes[1, idx].axhline(med * OUTER_BREAK_SENSITIVITY, color='red', linestyle='--')
-        axes[1, idx].set_title("Au�en: Radius", fontsize=8)
-
-        if len(var_outer) > 0:
-            axes[2, idx].plot(var_outer, color='green')
-            axes[2, idx].axhline(LOCAL_VARIANCE_THRESHOLD, color='red', linestyle='--')
-        axes[2, idx].set_title("Au�en: Varianz", fontsize=8)
-
-        if inner_profiles:
-            for prof, corners in inner_profiles:
-                color = 'red' if corners > MAX_ALLOWED_CORNERS else 'tab:blue'
-                alpha = 0.8 if corners > MAX_ALLOWED_CORNERS else 0.3
-                lw = 2 if corners > MAX_ALLOWED_CORNERS else 1
-                axes[3, idx].plot(prof, color=color, alpha=alpha, linewidth=lw)
-            axes[3, idx].set_title(f"Innen: Profile ({len(inner_profiles)})", fontsize=8)
-            axes[3, idx].grid(True, alpha=0.3)
-        else:
-            axes[3, idx].text(0.5, 0.5, "Keine Fenster", ha='center')
-
-    plt.tight_layout()
-    plt.savefig(output_file, dpi=100)
-    plt.close()
-
-
 def sort_images(source_dir, target_dir):
     print("\n[bruch.py] Starte Analyse (Geometrie + Peak Merging)...")
-    CLASSES = ["Normal", "Bruch", "Rest"]
-    if os.path.exists(target_dir):
-        shutil.rmtree(target_dir)
-    for c in CLASSES:
+    classes = ["Normal", "Bruch", "Rest"]
+    shutil.rmtree(target_dir, ignore_errors=True)
+    for c in classes:
         os.makedirs(os.path.join(target_dir, c), exist_ok=True)
 
-    stats = {k: 0 for k in CLASSES}
+    stats = {k: 0 for k in classes}
     collected_files = {"Normal": [], "Bruch": [], "Rest": []}
 
     for root, dirs, files in os.walk(source_dir):
@@ -256,7 +169,7 @@ def sort_images(source_dir, target_dir):
                 continue
 
             cat, reason = analyze_snack_geometry(img)
-            if cat not in CLASSES:
+            if cat not in classes:
                 cat = "Rest"
 
             parent = os.path.basename(root)

@@ -71,8 +71,6 @@ def evaluate_results(sorted_dir, csv_path):
 
     for current_folder in categories:
         folder_path = os.path.join(sorted_dir, current_folder)
-        if not os.path.exists(folder_path):
-            continue
 
         for root, _, files in os.walk(folder_path):
             for filename in files:

@@ -8,42 +8,49 @@ from scripts import farb
 from scripts import symmetrie
 from scripts import ergebnis
 
+
+def resolve_all_paths():
+    def valid(base):
+        imgs = os.path.join(base, "Images")
+        return all(
+            [
+                os.path.isdir(base),
+                os.path.isdir(os.path.join(imgs, "Normal")),
+                os.path.isdir(os.path.join(imgs, "Anomaly")),
+                os.path.isfile(os.path.join(base, "image_anno.csv")),
+            ]
+        )
+
+    base_dir = "data"
+    if not valid(base_dir):
+        base_dir = input("Pfad zu 'data' mit Images/Normal, Images/Anomaly und image_anno.csv: ").strip()
+        if not base_dir or not valid(base_dir):
+            print("Fehler: Gültige Datenstruktur nicht gefunden. Programm wird beendet.")
+            sys.exit(1)
+
+    output_dir = "output"
+    return {
+        "base": base_dir,
+        "raw": os.path.join(base_dir, "Images"),
+        "anno": os.path.join(base_dir, "image_anno.csv"),
+        "output": output_dir,
+        "processed": os.path.join(output_dir, "processed"),
+        "sorted": os.path.join(output_dir, "sorted"),
+    }
+
+
 if __name__ == '__main__':
-    RAW_DATA_DIR = os.path.join("data", "Images")
-    OUTPUT_DIR = os.path.join("output")
-    PROCESSED_DATA_DIR = os.path.join(OUTPUT_DIR, "processed")
-    SORTED_DATA_DIR = os.path.join(OUTPUT_DIR, "sorted")
-    ANNO_FILE = os.path.join("data", "image_anno.csv")
+    p = resolve_all_paths()
 
-    os.makedirs(PROCESSED_DATA_DIR, exist_ok=True)
-    os.makedirs(SORTED_DATA_DIR, exist_ok=True)
-
-    if not os.path.exists(RAW_DATA_DIR):
-        print(f"Fehler: Quellordner '{RAW_DATA_DIR}' nicht gefunden.")
-        user_input = input("Bitte Pfad zum Quellordner (Ordnername/Images) eingeben: ").strip()
-
-        if not user_input:
-            print("Kein Pfad angegeben. Programm wird beendet.")
-            sys.exit(1)
-
-        RAW_DATA_DIR = user_input
-
-        if not os.path.isdir(RAW_DATA_DIR):
-            print(f"Fehler: Angegebener Quellordner '{RAW_DATA_DIR}' nicht gefunden.")
-            sys.exit(1)
-
-    segmentierung.prepare_dataset(RAW_DATA_DIR, PROCESSED_DATA_DIR)
-
-    if not os.path.exists(PROCESSED_DATA_DIR) or not os.listdir(PROCESSED_DATA_DIR):
+    segmentierung.prepare_dataset(p["raw"], p["processed"])
+    if not os.listdir(p["processed"]):
         print("Fehler: Keine Bilder verarbeitet.")
         sys.exit(1)
 
-    bruch.sort_images(PROCESSED_DATA_DIR, SORTED_DATA_DIR)
-    rest.run_complexity_check(SORTED_DATA_DIR)
-    farb.run_color_check(SORTED_DATA_DIR)
-    symmetrie.run_symmetry_check(SORTED_DATA_DIR)
-
-    if os.path.exists(ANNO_FILE):
-        ergebnis.evaluate_results(SORTED_DATA_DIR, ANNO_FILE)
+    bruch.sort_images(p["processed"], p["sorted"])
+    rest.run_complexity_check(p["sorted"])
+    farb.run_color_check(p["sorted"])
+    symmetrie.run_symmetry_check(p["sorted"])
+    ergebnis.evaluate_results(p["sorted"], p["anno"])
 
     print("\nPipeline abgeschlossen.")

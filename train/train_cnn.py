@@ -211,24 +211,24 @@ def sample_params(rng: random.Random) -> Dict[str, float]:
     """Erzeugt eine zufaellige Parameter-Kombination innerhalb sinnvoller Grenzen."""
     return {
         # bruch.py
-        "bruch_outer_sens": rng.uniform(0.65, 0.9),
-        "bruch_max_radius_jump": rng.uniform(4.0, 12.0),
-        "bruch_local_var": rng.uniform(2.5, 6.5),
-        "bruch_min_obj_area": rng.randint(3500, 8000),
-        "bruch_min_windows": rng.randint(3, 7),
-        "bruch_min_window_area": rng.randint(5, 25),
-        "bruch_max_corners": rng.randint(2, 5),
-        "bruch_min_peak_dist": rng.randint(45, 110),
+        "bruch_outer_sens": rng.uniform(0.55, 0.95),
+        "bruch_max_radius_jump": rng.uniform(2.0, 16.0),
+        "bruch_local_var": rng.uniform(1.5, 8.5),
+        "bruch_min_obj_area": rng.randint(2500, 12000),
+        "bruch_min_windows": rng.randint(2, 8),
+        "bruch_min_window_area": rng.randint(3, 35),
+        "bruch_max_corners": rng.randint(2, 6),
+        "bruch_min_peak_dist": rng.randint(30, 140),
         # rest.py
-        "rest_max_edge_sum": rng.randint(2600, 4200),
-        "rest_min_edge_sum": rng.randint(2000, 3200),
-        "rest_min_object_area": rng.randint(150, 500),
+        "rest_max_edge_sum": rng.randint(2400, 5200),
+        "rest_min_edge_sum": rng.randint(1500, 3600),
+        "rest_min_object_area": rng.randint(100, 900),
         # farb.py
-        "spot_threshold": rng.randint(15, 70),
-        "burn_sat_min": rng.randint(20, 60),
-        "burn_value_max": rng.randint(80, 120),
-        "min_spot_size": rng.randint(25, 70),
-        "contrast_threshold": rng.randint(35, 60),
+        "spot_threshold": rng.randint(10, 120),
+        "burn_sat_min": rng.randint(10, 80),
+        "burn_value_max": rng.randint(60, 150),
+        "min_spot_size": rng.randint(15, 110),
+        "contrast_threshold": rng.randint(20, 80),
     }
 
 
@@ -300,6 +300,20 @@ def main():
     cfg = parse_args()
     rng = random.Random(cfg.seed)
     ground_truth = load_ground_truth(cfg.anno_file)
+
+    processed_root = Path(cfg.processed_dir)
+    has_images = False
+    if processed_root.exists():
+        for _, _, files in os.walk(processed_root):
+            if any(fn.lower().endswith((".jpg", ".jpeg", ".png")) for fn in files):
+                has_images = True
+                break
+    if not has_images:
+        print(
+            f"Kein verarbeitetes Dataset gefunden unter {cfg.processed_dir}. "
+            "Bitte zuerst segmentierung.prepare_dataset oder main.py ausfuehren."
+        )
+        return
 
     best = None
     for run_id in range(1, cfg.runs + 1):

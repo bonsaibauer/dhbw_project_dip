@@ -16,6 +16,9 @@ dist/
 #data/
 data/processed/
 data/sorted/
+train/runs/
+train/tmp_runs/
+output/
 
 # Betriebssystemspezifisches
 .DS_Store

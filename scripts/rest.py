@@ -40,7 +40,7 @@ def calculate_edge_sum(image):
 
 
 def run_complexity_check(sorted_dir):
-    print("\n[rest.py] Starte intelligente Komplexitäts-Prüfung...")
+    print("\n[rest.py] Starte Komplexitäts-Prüfung...")
     print(f"   - Limit: {MAX_EDGE_SUM} Kanten-Pixel")
     print(f"   - Artefakt-Filter: Objekte unter {MIN_OBJECT_AREA}px werden ignoriert")
 

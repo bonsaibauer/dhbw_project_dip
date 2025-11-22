@@ -268,7 +268,7 @@ def write_best_result(best: Dict[str, object], output_dir: Path):
 def run_experiment(run_id: int, params: Dict[str, float], cfg: argparse.Namespace, ground_truth):
     run_dir = Path(cfg.output_dir) / f"run_{run_id:02d}"
     if run_dir.exists():
-        shutil.rmtree(run_dir)
+        shutil.rmtree(run_dir, ignore_errors=True)
     run_dir.mkdir(parents=True, exist_ok=True)
 
     apply_params(params)

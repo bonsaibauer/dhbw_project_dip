@@ -1,19 +1,12 @@
-# main.py – Funktionsübersicht
+# main.py
 
-| Funktion | Kurzbeschreibung | Detailbeschreibung |
+## Hauptablauf (Schutz durch `if __name__ == '__main__':`)
+- Kurzbeschreibung: Führt die komplette Snack-Analyse-Pipeline von der Vorverarbeitung bis zur Auswertung aus.
+- Ausführliche Beschreibung: Setzt Quell-, Zwischen- und Zielpfade sowie den optionalen Annotationspfad. Prüft die Existenz der Rohdaten, ruft nacheinander die Teilmodule auf: `segmentierung.prepare_dataset` zum Zuschneiden, `bruch.sort_images` für die Grundklassifizierung, `rest.run_complexity_check` zur Komplexitätsprüfung, `farb.run_color_check` für Farbfehler und `symmetrie.run_symmetry_check` zum Bewerten der Symmetrie. Führt optional `ergebnis.evaluate_results` aus, falls eine Annotationsdatei vorliegt, und beendet mit einer Statusmeldung.
+# main.py – Funktions-/Ablaufübersicht
+
+| Funktion/Block | Kurzbeschreibung | Detaillierte Beschreibung |
 | --- | --- | --- |
-| `run_stage(script_name, entry_point)` | Lädt ein Stufenskript dynamisch und ruft dessen CLI-Einstieg. | Führt das angegebene Skript aus dem `scripts/`-Ordner via `runpy.run_path` aus, sucht nach der gewünschten Funktion, verifiziert deren Aufrufbarkeit und startet anschließend die Stage; fehlt die Funktion, wird ein RuntimeError ausgelöst. |
-| `run_pipeline()` | Orchestriert alle Pipeline-Stufen in fester Reihenfolge. | Iteriert über `STAGE_LIST`, die Dateinamen und Entry-Points enthalten, und ruft für jeden Eintrag `run_stage` auf, sodass Segmentierung, Bildverarbeitung, Klassifikation, Sortierung und Validierung nacheinander ausgeführt werden. |
+| `if __name__ == '__main__':` | Führt die komplette Pipeline von Rohdaten bis Auswertung aus. | Definiert Pfade für Rohbilder, Vorverarbeitung, Sortierung und optionale Annotation. Bricht mit Fehlermeldung ab, falls Rohdaten fehlen. Ablauf: (1) `segmentierung.prepare_dataset` erzeugt zugeschnittene Bilder. (2) `bruch.sort_images` klassifiziert grob in Normal/Bruch/Rest. (3) `rest.run_complexity_check` verschiebt chaotische/fragmentierte Fälle. (4) `farb.run_color_check` sucht Farbfehler in Normal. (5) `symmetrie.run_symmetry_check` versieht Normal-Bilder mit Symmetriescore. (6) Optional `ergebnis.evaluate_results`, wenn eine Annotations-CSV existiert. Abschließend Konsolenmeldung „Pipeline abgeschlossen.“ |
 
-## Konfiguration: path.json
-
-`config/path.json` liefert die zentralen Ablageorte für alle Stufen. Beim Laden werden die Pfade normalisiert (`os.path.normpath`).
-
-| Schlüssel | Kurzbeschreibung | Detailbeschreibung |
-| --- | --- | --- |
-| `paths.raw_image_directory` | Quelle der Rohbilder. | Wurzelverzeichnis der unbearbeiteten Snacks (Standard: `data/Images`). Die Segmentierung liest hier rekursiv alle JPG/JPEG/PNG-Dateien ein und nutzt Unterordner als Klassenbezeichner. |
-| `paths.processed_image_directory` | Zielordner der Segmentierung. | `01_segmentation.py` erstellt diesen Ordner neu und legt pro Quellklasse die zugeschnittenen Kacheln ab; spätere Stufen greifen hierauf zu. |
-| `paths.sorted_output_directory` | Ausgabe der Sortierphase. | `04_sorting.py` kopiert alle klassifizierten Bilder hierher, nach Klassen gruppiert. Der Ordner wird vor jedem Lauf geleert. |
-| `paths.failed_validation_directory` | Sammelstelle für Fehlklassifikationen. | `05_validation.py` legt diesen Unterordner innerhalb des Sortieroutputs an und kopiert dort jede Abweichung (Dateinamen enthalten Ground Truth und Prediction). |
-| `paths.annotation_file_path` | CSV mit Ground-Truth-Labels. | Referenz auf `data/image_anno.csv`. Die Validierung nutzt diesen Pfad zum Abgleich zwischen Predictions und manuellen Labels; fehlt die Datei, wird sie übersprungen. |
-| `paths.pipeline_csv_path` | Austauschformat zwischen Stufen. | `02_image_processing.py` erzeugt hier die Feature-CSV. `03_classification.py` ergänzt Zielklassen/Begründungen, `04_sorting.py` und `05_validation.py` lesen sie erneut für Kopierziele bzw. Reports. |
+Das Skript enthält keine weiteren Funktionen außerhalb des Main-Blocks.***

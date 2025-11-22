@@ -1,0 +1,18 @@
+{
+  "bruch_outer_sens": 0.6835910610281003,
+  "bruch_max_radius_jump": 10.779469895497861,
+  "bruch_local_var": 5.555098475906457,
+  "bruch_min_obj_area": 5589,
+  "bruch_min_windows": 3,
+  "bruch_min_window_area": 20,
+  "bruch_max_corners": 5,
+  "bruch_min_peak_dist": 105,
+  "rest_max_edge_sum": 3934,
+  "rest_min_edge_sum": 2777,
+  "rest_min_object_area": 257,
+  "spot_threshold": 21,
+  "burn_sat_min": 51,
+  "burn_value_max": 81,
+  "min_spot_size": 49,
+  "contrast_threshold": 48
+}

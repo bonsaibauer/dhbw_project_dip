@@ -1,0 +1,28 @@
+{
+  "accuracy": 7.000000000000001,
+  "total_hits": 42,
+  "total_soll": 600,
+  "processed": 600,
+  "per_class": {
+    "Normal": {
+      "soll": 500,
+      "hits": 10,
+      "acc": 2.0
+    },
+    "Bruch": {
+      "soll": 30,
+      "hits": 30,
+      "acc": 100.0
+    },
+    "Farbfehler": {
+      "soll": 44,
+      "hits": 0,
+      "acc": 0.0
+    },
+    "Rest": {
+      "soll": 26,
+      "hits": 2,
+      "acc": 7.6923076923076925
+    }
+  }
+}

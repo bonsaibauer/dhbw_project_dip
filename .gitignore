@@ -14,7 +14,8 @@ dist/
 
 # Laufzeit- und Ergebnisdaten
 #data/
-output/
+data/processed/
+data/sorted/
 
 # Betriebssystemspezifisches
 .DS_Store

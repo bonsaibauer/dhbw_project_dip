@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <title>Bildklassifizierungs-Pipeline</title>
+  <script type="module">
+    import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+    mermaid.initialize({ startOnLoad: true, securityLevel: 'loose' });
+  </script>
+  <style>
+    body {
+      margin: 0;
+      padding: 0 16px 24px;
+      font-family: "Segoe UI", Arial, sans-serif;
+      background: #f5f7fb;
+      color: #0f1a2a;
+    }
+    h1 {
+      font-weight: 600;
+      text-align: center;
+      margin: 24px 0;
+      letter-spacing: 0.02em;
+    }
+    .mermaid {
+      max-width: 1400px;
+      margin: 0 auto;
+      background: #fff;
+      border: 1px solid #d8deea;
+      border-radius: 10px;
+      padding: 16px;
+      box-shadow: 0 6px 24px rgba(28, 55, 90, 0.12);
+    }
+  </style>
+</head>
+<body>
+  <h1>Bildklassifizierungs-Pipeline</h1>
+  <div class="mermaid">
+flowchart TD
+    %% Einstieg
+    A["main.py\n__main__"] --> B{"RAW_DATA_DIR vorhanden?"}
+    B -- Nein --> X1["Abbruch\nFehlermeldung"]
+    B -- Ja --> C["segmentierung.prepare_dataset\n(segmentierung.py)"]
+
+    %% Segmentierung
+    C --> C1{"Datei-Endung\n.jpg | .jpeg | .png?"}
+    C1 -- Nein --> C2[Überspringen]
+    C1 -- Ja --> C3["cv2.imread\nBild laden"]
+    C3 --> C4{"Bild lesbar?"}
+    C4 -- Nein --> C2
+    C4 -- Ja --> C5["run_preprocessing\nGrünmaskierung -> Kontur -> Warp\ntarget 400x400"]
+    C5 --> C6{"Konturfläche > 30000?"}
+    C6 -- Nein --> C2
+    C6 -- Ja --> C7["Maskieren + Perspektiv-Transform\nSpeichern unter data/processed/..."]
+
+    %% Geometrische Klassifizierung
+    C7 --> D["bruch.sort_images\n(bruch.py)"]
+    D --> D1{"Datei-Endung\n.png | .jpg | .jpeg?"}
+    D1 -- Nein --> D2[Überspringen]
+    D1 -- Ja --> D3[cv2.imread]
+    D3 --> D4[analyze_snack_geometry]
+
+    %% analyze_snack_geometry Entscheidungsbaum
+    subgraph Analyse_Aeussere_Form
+      D4 --> E0["Maske aus Graustufe\nMorph Open/Close"]
+      E0 --> E1{"Contour vorhanden?"}
+      E1 -- Nein --> R1["Return Rest\nGrund: Kein Objekt"]
+      E1 -- Ja --> E2["Äußere Kontur -> Mittelpunkt\nRadien dists_outer"]
+      E2 --> E3["Glätten mit w=15\nmedian_r = Median"]
+      E3 --> E4{"dists unter median_r*0.75 > 10?"}
+      E4 -- Ja --> R2["Return Bruch\nGrund: Äußerer Bruch Tiefe"]
+      E4 -- Nein --> E5["grad = |Gradient|"]
+      E5 --> E6{"max(grad[10:-10]) > 14.2?"}
+      E6 -- Ja --> R3["Return Bruch\nGrund: Radius-Sprung"]
+      E6 -- Nein --> E7["loc_var = lokale Varianz (win=15)"]
+      E7 --> E8{"max(loc_var) > 3.0?"}
+      E8 -- Ja --> R4["Return Bruch\nGrund: Unruhig/Varianz"]
+    end
+
+    subgraph Analyse_Innere_Fenster
+      E8 -- Nein --> F0["findContours RETR_TREE\nCHAIN_APPROX_NONE"]
+      F0 --> F1["Filter: parent != -1,\narea > 10,\nDistanz zum Zentrum > 30"]
+      F1 --> F2[count valid_windows]
+      F2 --> F3{"valid_windows < 5?"}
+      F3 -- Ja --> R5["Return Rest\nGrund: Fragmentiert"]
+      F3 -- Nein --> F4{"valid_windows < 6?"}
+      F4 -- Ja --> F5["Für jedes Fenster:\nRadialprofil, count_peaks(win=8,min_dist=100)"]
+      F4 -- Nein --> R6["Return Rest\nGrund: Zu viele Fenster"]
+      F5 --> F6{"Ecken > MAX_ALLOWED_CORNERS (3)?"}
+      F6 -- Ja --> R7["Return Bruch\nGrund: Innerer Bruch (Ecken >3)"]
+      F6 -- Nein --> R8["Return Normal\nGrund: OK"]
+    end
+
+    %% Ergebnisablage bruch.sort_images
+    R1:::rest --> G[Zielordner Rest]
+    R2:::bruch --> H[Zielordner Bruch]
+    R3:::bruch --> H
+    R4:::bruch --> H
+    R5:::rest --> G
+    R6:::rest --> G
+    R7:::bruch --> H
+    R8:::normal --> I[Zielordner Normal]
+
+    %% Styles
+    style Analyse_Aeussere_Form fill:#eef,stroke:#36c
+    style Analyse_Innere_Fenster fill:#eef,stroke:#36c
+    style Symmetrie_Check fill:#eef,stroke:#36c
+    classDef rest fill:#fdd,stroke:#d33,color:#000;
+    classDef bruch fill:#fdd,stroke:#d33,color:#000;
+    classDef normal fill:#dfd,stroke:#080,color:#000;
+
+    %% Komplexitäts-Check
+    H --> J["rest.run_complexity_check\nfür Bruch + Normal"]
+    I --> J
+    J --> J1["edge_sum via Canny auf Binärmaske"]
+    J1 --> J2{"edge_sum > 3032?"}
+    J2 -- Nein --> J3[Belassen in Ursprungsordner]
+    J2 -- Ja --> J4["remove_small_artifacts\n(min_area=250)"]
+    J4 --> J5["edges_clean = Canny(binary_clean)"]
+    J5 --> J6{"clean_edge_sum > 3032?"}
+    J6 -- Ja --> J7["Move nach Rest"]
+    J6 -- Nein --> J3
+
+    %% Farbfehler-Check
+    J3 --> K["farb.run_color_check\nnur Ordner Normal"]
+    K --> K1["detect_defects:\nErosion Rand,\nBlack-Hat (21x21),\nThreshold 60,\nspot_threshold=20"]
+    K1 --> K2{"total_defect_area > 20?"}
+    K2 -- Ja --> K3["Markieren + Move nach Farbfehler"]
+    K2 -- Nein --> K4[Normal bleibt]
+
+    %% Symmetrie-Analyse (nur Normal)
+    K4 --> S["symmetrie.run_symmetry_check\n(Nur Klasse Normal)"]
+    subgraph Symmetrie_Check
+      S --> S1["Graustufe + Threshold 10\n-> Binaermaske"]
+      S1 --> S2["Schwerpunkt per Moments"]
+      S2 --> S3["5x Rotation um 60deg\nSchnittmenge = Kern"]
+      S3 --> S4["Asymmetrie = Original - Kern\nScore = (1 - Fehleranteil)*100"]
+      S4 --> S5["Dateiname = {Score:05.2f}_Name.jpg"]
+    end
+
+    %% Evaluation
+    J7 --> L["Rest (final)"]
+    H --> L
+    K3 --> M["Farbfehler (final)"]
+    S5 --> N["Normal (final, mit Score-Prefix)"]
+    L --> O["ergebnis.evaluate_results (optional)\nCSV matching + Fehlzuordnungen -> Falsch"]
+    M --> O
+    N --> O
+  </div>
+</body>
+</html>

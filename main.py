@@ -1,32 +1,56 @@
 import os
-import runpy
+import sys
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-SCRIPT_DIR = os.path.join(BASE_DIR, "scripts")
-STAGE_LIST = [
-    ("01_segmentation.py", "segment_cli"),
-    ("02_image_processing.py", "process_cli"),
-    ("03_classification.py", "classify_cli"),
-    ("04_sorting.py", "sort_cli"),
-    ("05_validation.py", "validate_cli"),
-]
+from scripts import segmentierung
+from scripts import bruch
+from scripts import rest
+from scripts import farb
+from scripts import symmetrie
+from scripts import ergebnis
 
 
-def run_stage(script_name, entry_point):
-    """Laedt das Feature-Skript und fuehrt die gewuenschte CLI-Funktion aus."""
-    module = runpy.run_path(os.path.join(SCRIPT_DIR, script_name))
-    func = module.get(entry_point)
-    if not callable(func):
-        raise RuntimeError(
-            f"Funktion '{entry_point}' nicht in {script_name} gefunden."
+def resolve_all_paths():
+    def valid(base):
+        imgs = os.path.join(base, "Images")
+        return all(
+            [
+                os.path.isdir(base),
+                os.path.isdir(os.path.join(imgs, "Normal")),
+                os.path.isdir(os.path.join(imgs, "Anomaly")),
+                os.path.isfile(os.path.join(base, "image_anno.csv")),
+            ]
         )
-    func()
+
+    base_dir = "data"
+    if not valid(base_dir):
+        base_dir = input("Pfad zu 'data' mit Images/Normal, Images/Anomaly und image_anno.csv: ").strip()
+        if not base_dir or not valid(base_dir):
+            print("Fehler: Gültige Datenstruktur nicht gefunden. Programm wird beendet.")
+            sys.exit(1)
+
+    output_dir = "output"
+    return {
+        "base": base_dir,
+        "raw": os.path.join(base_dir, "Images"),
+        "anno": os.path.join(base_dir, "image_anno.csv"),
+        "output": output_dir,
+        "processed": os.path.join(output_dir, "processed"),
+        "sorted": os.path.join(output_dir, "sorted"),
+    }
 
 
-def run_pipeline():
-    for script_name, entry_point in STAGE_LIST:
-        run_stage(script_name, entry_point)
+if __name__ == '__main__':
+    p = resolve_all_paths()
 
+    segmentierung.prepare_dataset(p["raw"], p["processed"])
+    if not os.listdir(p["processed"]):
+        print("Fehler: Keine Bilder verarbeitet.")
+        sys.exit(1)
 
-if __name__ == "__main__":
-    run_pipeline()
+    bruch.sort_images(p["processed"], p["sorted"])
+    rest.run_complexity_check(p["sorted"])
+    farb.run_color_check(p["sorted"])
+    symmetrie.run_symmetry_check(p["sorted"])
+    ergebnis.evaluate_results(p["sorted"], p["anno"])
+
+    print("\nPipeline abgeschlossen.")
